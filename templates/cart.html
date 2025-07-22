@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Корзина - VIP Sneaker Shop</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Arial', sans-serif;
+        }
+        body {
+            background-color: #f8f9fa;
+            padding: 15px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .section {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h2 {
+            margin-bottom: 20px;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .cart-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 15px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .item-info {
+            flex: 3;
+        }
+        .item-price {
+            flex: 1;
+            text-align: right;
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        .item-quantity {
+            flex: 1;
+            text-align: center;
+        }
+        .total {
+            font-size: 20px;
+            font-weight: bold;
+            text-align: right;
+            margin-top: 20px;
+            padding-top: 10px;
+            border-top: 2px solid #3498db;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        .btn-submit {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background: #27ae60;
+            color: white;
+            text-align: center;
+            border: none;
+            border-radius: 5px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        .btn-submit:hover {
+            background: #219653;
+        }
+        .empty-cart {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="section">
+            <h2>Ваша корзина</h2>
+
+            <div id="cart-items">
+                {% if not items %}
+                <div class="empty-cart">
+                    <p>Ваша корзина пуста</p>
+                    <a href="{{ url_for('index') }}">Вернуться в магазин</a>
+                </div>
+                {% else %}
+                    {% for item in items %}
+                    <div class="cart-item">
+                        <div class="item-info">{{ item.name }}</div>
+                        <div class="item-quantity">x{{ item.quantity }}</div>
+                        <div class="item-price">{{ item.price * item.quantity }} руб.</div>
+                    </div>
+                    {% endfor %}
+                    <div class="total">
+                        Итого: {{ total }} руб.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if items %}
+        <div class="section">
+            <h2>Оформление заказа</h2>
+
+            <form id="order-form">
+                <div class="form-group">
+                    <label for="fullname">ФИО:</label>
+                    <input type="text" id="fullname" name="fullname" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="phone">Телефон:</label>
+                    <input type="tel" id="phone" name="phone" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="address">Адрес (если требуется доставка):</label>
+                    <input type="text" id="address" name="address">
+                </div>
+
+                <div class="form-group">
+                    <label for="delivery">Способ получения:</label>
+                    <select id="delivery" name="delivery" required>
+                        <option value="">Выберите способ</option>
+                        <option value="Самовывоз">Самовывоз (Москва)</option>
+                        <option value="Почта России">Почта России</option>
+                        <option value="СДЭК">Транспортная компания СДЭК</option>
+                    </select>
+                </div>
+
+                <button type="button" class="btn-submit" onclick="submitOrder()">Оформить заказ</button>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        function submitOrder() {
+            const fullname = document.getElementById('fullname').value;
+            const phone = document.getElementById('phone').value;
+            const address = document.getElementById('address').value;
+            const delivery = document.getElementById('delivery').value;
+
+            if (!fullname || !phone || !delivery) {
+                Telegram.WebApp.showAlert('Заполните все обязательные поля!');
+                return;
+            }
+
+            const contact_info = `ФИО: ${fullname}\nТелефон: ${phone}\nАдрес: ${address || 'Не указан'}`;
+
+            // Получаем данные корзины
+            const cart = JSON.parse(localStorage.getItem('cart')) || [];
+
+            // Отправляем данные на сервер
+            fetch("{{ url_for('create_order') }}", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    user_id: Telegram.WebApp.initDataUnsafe.user?.id || 'unknown',
+                    items: cart,
+                    delivery_method: delivery,
+                    contact_info: contact_info
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Очищаем корзину
+                    localStorage.removeItem('cart');
+                    Telegram.WebApp.showAlert('Заказ успешно оформлен!');
+
+                    // Закрываем веб-приложение
+                    setTimeout(() => {
+                        Telegram.WebApp.close();
+                    }, 2000);
+                } else {
+                    Telegram.WebApp.showAlert('Ошибка при оформлении заказа');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                Telegram.WebApp.showAlert('Произошла ошибка');
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Управление товарами</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: Arial, sans-serif; }
+        body { padding: 20px; }
+        h1 { margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f2f2f2; }
+        tr:hover { background-color: #f5f5f5; }
+        .btn-delete { padding: 5px 10px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-add { display: inline-block; padding: 10px 15px; background: #4CAF50; color: white; text-decoration: none; border-radius: 4px; margin-bottom: 20px; }
+        .add-product-form { background: #f9f9f9; padding: 20px; border-radius: 5px; margin-top: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; }
+        input, textarea, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .btn-submit { background: #2196F3; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Управление товарами</h1>
+    <button class="btn-add" onclick="toggleForm()">Добавить товар</button>
+
+    <div class="add-product-form" id="addForm" style="display:none;">
+        <form action="/admin/product/add" method="post">
+            <div class="form-group">
+                <label>Название:</label>
+                <input type="text" name="name" required>
+            </div>
+            <div class="form-group">
+                <label>Категория:</label>
+                <select name="category" required>
+                    <option value="sneakers">Кроссовки</option>
+                    <option value="clothing">Одежда</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Бренд:</label>
+                <input type="text" name="brand" required>
+            </div>
+            <div class="form-group">
+                <label>Размер:</label>
+                <input type="text" name="size" required>
+            </div>
+            <div class="form-group">
+                <label>Цена:</label>
+                <input type="number" name="price" required>
+            </div>
+            <div class="form-group">
+                <label>Описание:</label>
+                <textarea name="description" rows="3"></textarea>
+            </div>
+            <div class="form-group">
+                <label>URL изображения:</label>
+                <input type="text" name="image_url" required>
+            </div>
+            <button type="submit" class="btn-submit">Добавить</button>
+        </form>
+    </div>
+
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Название</th>
+            <th>Категория</th>
+            <th>Цена</th>
+            <th>Действия</th>
+        </tr>
+        {% for product in products %}
+        <tr>
+            <td>{{ product.id }}</td>
+            <td>{{ product.name }}</td>
+            <td>{{ product.category }}</td>
+            <td>{{ product.price }} руб.</td>
+            <td>
+                <button class="btn-delete" onclick="deleteProduct({{ product.id }})">Удалить</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <script>
+        function toggleForm() {
+            const form = document.getElementById('addForm');
+            form.style.display = form.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function deleteProduct(productId) {
+            if (confirm('Вы уверены, что хотите удалить этот товар?')) {
+                window.location.href = `/admin/product/delete/${productId}`;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Управление заказами</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: Arial, sans-serif; }
+        body { padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .btn-back { padding: 8px 15px; background: #2196F3; color: white; text-decoration: none; border-radius: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f2f2f2; }
+        tr:hover { background-color: #f5f5f5; }
+        .status-pending { color: #FF9800; font-weight: bold; }
+        .status-shipped { color: #2196F3; font-weight: bold; }
+        .status-delivered { color: #4CAF50; font-weight: bold; }
+        .form-container { margin-top: 20px; padding: 20px; background: #f9f9f9; border-radius: 5px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; }
+        select, input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .btn-update { background: #2196F3; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Управление заказами</h1>
+            <a href="/admin" class="btn-back">Назад в админку</a>
+        </div>
+
+        <table>
+            <tr>
+                <th>ID</th>
+                <th>Пользователь</th>
+                <th>Статус</th>
+                <th>Дата</th>
+                <th>Доставка</th>
+                <th>Действия</th>
+            </tr>
+            {% for order in orders %}
+            <tr>
+                <td>{{ order.id }}</td>
+                <td>{{ order.user_id }}</td>
+                <td class="status-{{ order.status|lower }}">{{ order.status }}</td>
+                <td>{{ order.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                <td>{{ order.delivery_type }}</td>
+                <td>
+                    <form action="/admin/order/update/{{ order.id }}" method="post" class="order-form">
+                        <input type="hidden" name="order_id" value="{{ order.id }}">
+                        <select name="status">
+                            <option value="Обработка" {% if order.status == 'Обработка' %}selected{% endif %}>Обработка</option>
+                            <option value="Отправлен" {% if order.status == 'Отправлен' %}selected{% endif %}>Отправлен</option>
+                            <option value="Доставлен" {% if order.status == 'Доставлен' %}selected{% endif %}>Доставлен</option>
+                        </select>
+                        <input type="text" name="track_number" placeholder="Трек-номер" value="{{ order.track_number or '' }}">
+                        <button type="submit" class="btn-update">Обновить</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</body>
+</html>
