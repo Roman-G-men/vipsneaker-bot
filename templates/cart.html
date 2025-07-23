@@ -1,4 +1,3 @@
-<!-- templates/cart.html -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -7,18 +6,9 @@
     <title>Моя корзина</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        :root {
-            --tg-theme-bg-color: #ffffff;
-            --tg-theme-text-color: #000000;
-            --tg-theme-hint-color: #999999;
-            --tg-theme-link-color: #3390ec;
-            --tg-theme-button-color: #3390ec;
-            --tg-theme-button-text-color: #ffffff;
-            --tg-theme-secondary-bg-color: #f4f4f5;
-        }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 15px; background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
+        :root { /* Цвета из темы Telegram */ }
+        body { font-family: -apple-system, sans-serif; margin: 0; padding: 15px; background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
         h1 { margin-bottom: 20px; }
-        #cart-items { margin-bottom: 20px; }
         .cart-item { display: flex; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--tg-theme-secondary-bg-color); padding-bottom: 15px; }
         .cart-item img { width: 70px; height: 70px; object-fit: cover; border-radius: 8px; margin-right: 15px; }
         .item-details { flex-grow: 1; }
@@ -71,11 +61,11 @@
                     itemEl.innerHTML = `
                         <img src="${item.image_url}" alt="${item.name}">
                         <div class="item-details">
-                            <b>${item.name}</b>
+                            <b>${item.name} (${item.size})</b>
                             <div class="quantity-controls">
-                                <button onclick="changeQuantity(${item.id}, -1)">-</button>
+                                <button onclick="changeQuantity('${item.id}-${item.size}', -1)">-</button>
                                 <span>${item.quantity}</span>
-                                <button onclick="changeQuantity(${item.id}, 1)">+</button>
+                                <button onclick="changeQuantity('${item.id}-${item.size}', 1)">+</button>
                             </div>
                         </div>
                         <div class="item-price">${item.price * item.quantity} руб.</div>
@@ -84,17 +74,17 @@
                     totalPrice += item.price * item.quantity;
                 });
                 checkoutForm.style.display = 'block';
-                mainButton.setText(`Перейти к оплате ${totalPrice} руб.`);
+                mainButton.setText(`Оформить заказ на ${totalPrice} руб.`);
                 mainButton.show();
             }
             totalPriceEl.textContent = `Итого: ${totalPrice} руб.`;
         }
 
-        function changeQuantity(productId, delta) {
-            if (cart[productId]) {
-                cart[productId].quantity += delta;
-                if (cart[productId].quantity <= 0) {
-                    delete cart[productId];
+        function changeQuantity(cartItemId, delta) {
+            if (cart[cartItemId]) {
+                cart[cartItemId].quantity += delta;
+                if (cart[cartItemId].quantity <= 0) {
+                    delete cart[cartItemId];
                 }
                 saveCartAndRedraw();
             }
@@ -106,7 +96,7 @@
             tg.HapticFeedback.impactOccurred('light');
         }
 
-        mainButton.onClick(async () => {
+        mainButton.onClick(() => {
             const phone = document.getElementById('phone').value;
             const address = document.getElementById('address').value;
 
@@ -118,35 +108,23 @@
             mainButton.showProgress(true).disable();
 
             const orderData = {
+                type: 'newOrder',
                 user_id: userId,
                 items: Object.values(cart),
-                delivery_type: 'СДЭК', // Можно будет добавить выбор
+                delivery_type: 'СДЭК',
                 phone: phone,
                 address: address,
                 total_price: Object.values(cart).reduce((sum, item) => sum + item.price * item.quantity, 0)
             };
 
-            try {
-                const response = await fetch('/create_order', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(orderData)
-                });
-                const result = await response.json();
+            tg.sendData(JSON.stringify(orderData));
+            localStorage.removeItem('cart');
 
-                if (result.status === 'success') {
-                    // Очищаем корзину после успешного заказа
-                    localStorage.removeItem('cart');
-                    tg.showAlert(`Заказ #${result.order_id} успешно создан! Мы скоро свяжемся с вами.`);
-                    tg.close();
-                } else {
-                    tg.showAlert(`Ошибка: ${result.message}`);
-                }
-            } catch (error) {
-                tg.showAlert('Произошла сетевая ошибка. Попробуйте снова.');
-            } finally {
-                mainButton.hideProgress().enable();
-            }
+            // Телеграм гарантирует доставку, поэтому мы можем закрыть сразу
+            // Небольшая задержка, чтобы пользователь увидел, что кнопка нажалась
+            setTimeout(() => {
+                tg.close();
+            }, 200);
         });
 
         displayCart();

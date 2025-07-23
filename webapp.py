@@ -3,7 +3,7 @@
 import logging
 import json
 import os
-from flask import Flask, render_template, request, jsonify, abort
+from flask import Flask, render_template, request, abort
 from sqlalchemy.exc import SQLAlchemyError
 from database import get_scoped_session, Product, Order, User
 
@@ -15,115 +15,49 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'a_very_secret_key_for_development')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 
-# Создаем фабрику сессий, которая будет уникальна для каждого запроса
 Session = get_scoped_session()
-
 
 @app.teardown_request
 def remove_session(ex=None):
-    """Автоматически закрывает сессию после каждого запроса."""
     Session.remove()
-
-
-# --- МАРШРУТЫ МАГАЗИНА (ДЛЯ ПОЛЬЗОВАТЕЛЕЙ) ---
 
 @app.route('/')
 def index():
-    """Главная страница магазина с каталогом товаров."""
     user_id = request.args.get('user_id', '')
-    logger.info(f"WEBAPP: Запрос главной страницы от пользователя: {user_id}")
     try:
-        products = Session.query(Product).filter_by(is_active=1).order_by(Product.name).all()
+        products = Session.query(Product).filter_by(is_active=1).order_by(Product.id.desc()).all()
         return render_template('index.html', products=products, user_id=user_id)
-    except SQLAlchemyError as e:
+    except Exception as e:
         logger.error(f"WEBAPP: Ошибка при загрузке товаров: {e}", exc_info=True)
         return render_template('error.html', message="Не удалось загрузить каталог товаров."), 500
 
-
 @app.route('/product/<int:product_id>')
 def product_detail(product_id):
-    """Страница деталей конкретного товара."""
     user_id = request.args.get('user_id', '')
-    logger.info(f"WEBAPP: Запрос товара {product_id} от пользователя: {user_id}")
     try:
         product = Session.query(Product).filter_by(id=product_id, is_active=1).first()
         if not product:
-            logger.warning(f"WEBAPP: Активный товар {product_id} не найден")
             abort(404)
         return render_template('product.html', product=product, user_id=user_id)
-    except SQLAlchemyError as e:
+    except Exception as e:
         logger.error(f"WEBAPP: Ошибка при загрузке товара {product_id}: {e}", exc_info=True)
         return render_template('error.html', message="Ошибка при загрузке информации о товаре."), 500
 
-
 @app.route('/cart')
 def cart_page():
-    """Отображает страницу корзины."""
     user_id = request.args.get('user_id', '')
-    logger.info(f"WEBAPP: Пользователь {user_id} открыл корзину")
     return render_template('cart.html', user_id=user_id)
-
 
 @app.route('/orders')
 def user_orders():
-    """Страница заказов пользователя."""
     user_id = request.args.get('user_id')
-    if not user_id:
-        logger.warning("WEBAPP: Запрос заказов без user_id")
-        return render_template('error.html', message="Не указан идентификатор пользователя."), 400
-
-    logger.info(f"WEBAPP: Запрос заказов пользователя: {user_id}")
+    if not user_id: return render_template('error.html', message="Не указан ID пользователя."), 400
     try:
         orders = Session.query(Order).filter_by(user_id=user_id).order_by(Order.created_at.desc()).all()
-        # Преобразуем JSON-строку в Python-объект для каждого заказа
         for order in orders:
             if isinstance(order.items, str):
-                try:
-                    order.items = json.loads(order.items)
-                except json.JSONDecodeError:
-                    order.items = []
-
+                order.items = json.loads(order.items)
         return render_template('orders.html', orders=orders, user_id=user_id)
-    except SQLAlchemyError as e:
-        logger.error(f"WEBAPP: Ошибка при загрузке заказов пользователя {user_id}: {e}", exc_info=True)
-        return render_template('error.html', message="Не удалось загрузить историю заказов."), 500
-
-
-@app.route('/create_order', methods=['POST'])
-def create_order():
-    """API-ручка для создания заказа в базе данных."""
-    logger.info("WEBAPP: Поступил запрос на создание заказа")
-    try:
-        data = request.json
-        required_fields = ['user_id', 'items', 'delivery_type', 'phone', 'address', 'total_price']
-        if not all(k in data for k in required_fields):
-            logger.error(f"WEBAPP: Неполные данные для создания заказа: {data}")
-            return jsonify({"status": "error", "message": "Не все обязательные поля заполнены."}), 400
-
-        order = Order(
-            user_id=data['user_id'],
-            items=json.dumps(data['items']),
-            delivery_type=data['delivery_type'],
-            address=data.get('address', '').strip(),
-            phone=data['phone'].strip(),
-            total_amount=data['total_price'],
-            status='Ожидает оплаты'
-        )
-        Session.add(order)
-        Session.commit()
-        logger.info(f"WEBAPP: Заказ #{order.id} успешно создан для пользователя {order.user_id}")
-
-        # В будущем здесь можно добавить интеграцию с платежным шлюзом
-        return jsonify({
-            "status": "success",
-            "order_id": order.id,
-            "message": "Заказ успешно создан!"
-        })
-
-    except SQLAlchemyError as e:
-        Session.rollback()
-        logger.error(f"WEBAPP: Ошибка БД при создании заказа: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": "Ошибка базы данных при создании заказа."}), 500
     except Exception as e:
-        logger.error(f"WEBAPP: Непредвиденная ошибка при создании заказа: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": "Внутренняя ошибка сервера."}), 500
+        logger.error(f"WEBAPP: Ошибка загрузки заказов {user_id}: {e}", exc_info=True)
+        return render_template('error.html', message="Не удалось загрузить историю заказов."), 500

@@ -1,4 +1,4 @@
-# bot.py - ФИНАЛЬНАЯ ВЕРСИЯ С ПРОДВИНУТОЙ АДМИНКОЙ И УВЕДОМЛЕНИЯМИ
+# bot.py - ФИНАЛЬНАЯ ВЕРСИЯ С ИНТЕРАКТИВНОЙ АДМИНКОЙ И СОЗДАНИЕМ ЗАКАЗОВ
 
 import logging
 import os
@@ -15,14 +15,24 @@ from telegram.ext import (
 )
 from database import get_session, User, Order, Product, ProductVariant
 
-# Настройка логирования
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+# Настройка логирования для записи в файл на сервере
+LOG_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bot.log')
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler(LOG_FILE_PATH, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # --- Конфигурация ---
 TOKEN = os.getenv("TOKEN")
 WEBAPP_URL = os.getenv("WEBAPP_URL")
 IMGBB_API_KEY = os.getenv("IMGBB_API_KEY")
+
+# ВАЖНО: Вставьте сюда свой Telegram User ID. Чтобы его узнать, напиши боту @userinfobot
 ADMIN_IDS = [8141146399, ]
 
 # --- Состояния для диалога ---
@@ -44,6 +54,8 @@ ADD_VARIANT_TEXT = "Отлично! Товар создан.\n\nФинальны
 
 # --- Утилиты ---
 def admin_only(func):
+    """Декоратор для проверки прав администратора."""
+
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = update.effective_user.id
         if user_id not in ADMIN_IDS:
@@ -58,6 +70,7 @@ def admin_only(func):
 
 
 def upload_to_imgbb(image_bytes, filename="photo.jpg"):
+    """Функция для загрузки байтов изображения на ImgBB."""
     if not IMGBB_API_KEY: raise ValueError("IMGBB_API_KEY не установлен!")
     url = "https://api.imgbb.com/1/upload"
     payload = {"key": IMGBB_API_KEY}
@@ -74,6 +87,7 @@ def upload_to_imgbb(image_bytes, filename="photo.jpg"):
 
 # --- КЛИЕНТСКАЯ ЧАСТЬ И ВЫХОД ИЗ АДМИНКИ ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Выход из админки и показ главного меню."""
     user_id = update.effective_user.id
     logger.info(f"Пользователь {user_id} запустил/перезапустил бота.")
     context.user_data.clear()
@@ -114,7 +128,8 @@ async def get_brand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['new_product']['brand'] = update.message.text
     keyboard = [["кроссовки", "одежда"]]
     await update.message.reply_text("Шаг 3/7: Выберите **категорию**:",
-                                    reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+                                    reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True,
+                                                                     resize_keyboard=True))
     return ADD_CATEGORY
 
 
@@ -201,22 +216,23 @@ async def cancel_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return await admin_panel(update, context)
 
 
-# --- Просмотр и удаление товаров ---
-async def list_products_paginated(update_or_query, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
+# --- Просмотр, редактирование, удаление товаров ---
+async def list_products_paginated(message, context: ContextTypes.DEFAULT_TYPE, page: int = 0, is_edit=False):
     with get_session() as session:
         per_page = 5
         offset = page * per_page
         products = session.query(Product).order_by(Product.id.desc()).limit(per_page).offset(offset).all()
         total_products = session.query(Product).count()
+        total_pages = -(-total_products // per_page)
 
-    message_text = f"Товары (Страница {page + 1} из {-(-total_products // per_page)}):"
+    message_text = f"Товары (Страница {page + 1} из {total_pages}):"
     keyboard = []
     if not products:
         message_text = "В каталоге пока нет товаров."
     else:
         for product in products:
             keyboard.append(
-                [InlineKeyboardButton(f"#{product.id} {product.name}", callback_data=f"prod_view_{product.id}")])
+                [InlineKeyboardButton(f"#{product.id} {product.name}", callback_data=f"prod_view_{product.id}_{page}")])
 
     pagination_buttons = []
     if page > 0: pagination_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"prod_page_{page - 1}"))
@@ -226,10 +242,10 @@ async def list_products_paginated(update_or_query, context: ContextTypes.DEFAULT
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    if hasattr(update_or_query, 'message') and update_or_query.message:  # CallbackQuery
-        await update_or_query.edit_message_text(text=message_text, reply_markup=reply_markup)
-    else:  # Message
-        await update_or_query.reply_text(message_text, reply_markup=reply_markup)
+    if is_edit:
+        await message.edit_text(text=message_text, reply_markup=reply_markup)
+    else:
+        await message.reply_text(text=message_text, reply_markup=reply_markup)
 
 
 @admin_only
@@ -241,27 +257,28 @@ async def product_page_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     page = int(query.data.split('_')[-1])
-    await list_products_paginated(query, context, page=page)
+    await list_products_paginated(query.message, context, page=page, is_edit=True)
 
 
 async def view_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-    product_id = int(query.data.split('_')[-1])
+    _, _, product_id, page = query.data.split('_')
     with get_session() as session:
         product = session.query(Product).get(product_id)
     if not product:
         await query.edit_message_text("Товар не найден.");
         return
     variants_text = "\n".join([f"  - {v.size}, {v.price} руб., {v.stock} шт." for v in product.variants])
-    text = f"**Товар #{product.id}: {product.name}**\n\n**Бренд:** {product.brand}\n**Активен:** {'Да' if product.is_active else 'Нет'}\n\n**Варианты:**\n{variants_text}"
-    keyboard = [[InlineKeyboardButton("🗑️ Удалить товар", callback_data=f"prod_delete_{product_id}")],
-                [InlineKeyboardButton("⬅️ Назад к списку", callback_data="prod_page_0")]]
+    text = f"**Товар #{product.id}: {product.name}**\n\n**Активен:** {'Да' if product.is_active else 'Нет'}\n\n**Варианты:**\n{variants_text}"
+    keyboard = [[InlineKeyboardButton("🗑️ Удалить товар", callback_data=f"prod_delete_{product.id}")],
+                [InlineKeyboardButton("⬅️ Назад к списку", callback_data=f"prod_page_{page}")]]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 
 async def delete_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
+    await query.answer("Удаляем...", show_alert=False)
     product_id = int(query.data.split('_')[-1])
     with get_session() as session:
         product = session.query(Product).get(product_id)
@@ -269,7 +286,7 @@ async def delete_product_callback(update: Update, context: ContextTypes.DEFAULT_
             session.delete(product);
             session.commit()
             await query.answer(f"Товар #{product_id} удален!", show_alert=True)
-            await list_products_paginated(query, context, page=0)
+            await list_products_paginated(query.message, context, page=0, is_edit=True)
         else:
             await query.answer("Товар уже был удален.", show_alert=True)
 
@@ -278,6 +295,9 @@ async def delete_product_callback(update: Update, context: ContextTypes.DEFAULT_
 async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         data = json.loads(update.effective_message.web_app_data.data)
+        user_id = update.effective_user.id
+        logger.info(f"Получены данные из WebApp от {user_id}: {data}")
+
         if data.get('type') == 'addToCart':
             product = data.get('product', {})
             message = (f"✅ **Товар добавлен в корзину!**\n\n"
@@ -287,15 +307,39 @@ async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                        f"Чтобы оформить заказ, перейдите в корзину в магазине или напишите нам:\n"
                        f"➡️ @VibeeAdmin / @kir_tg1")
             await update.message.reply_photo(photo=product.get('image_url'), caption=message, parse_mode='Markdown')
+
+        elif data.get('type') == 'newOrder':
+            with get_session() as session:
+                new_order = Order(
+                    user_id=user_id, items=json.dumps(data.get('items')), delivery_type=data.get('delivery_type'),
+                    address=data.get('address'), phone=data.get('phone'), total_amount=data.get('total_price'),
+                    status='Обработка'
+                )
+                session.add(new_order)
+                session.commit()
+                order_id = new_order.id
+            logger.info(f"Заказ #{order_id} от пользователя {user_id} успешно сохранен в БД.")
+
+            order_text = f"✅ **Ваш заказ #{order_id} успешно оформлен!**\n\n"
+            order_text += "**Состав заказа:**\n"
+            for item in data.get('items', []):
+                order_text += f"- {item.get('name')} ({item.get('size')}) - {item.get('price')} руб.\n"
+            order_text += f"\n**Итого:** {data.get('total_price')} руб.\n\n"
+            order_text += "Мы скоро свяжемся с вами для подтверждения.\nДля связи: @VibeeAdmin / @kir_tg1"
+            await update.message.reply_text(order_text, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Ошибка обработки данных из WebApp: {e}", exc_info=True)
 
 
 async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_user.id in ADMIN_IDS:
-        await update.message.reply_text("Неизвестная команда. Используйте кнопки админ-меню или /start для выхода.")
+        await update.message.reply_text(
+            "Неизвестная команда. Используйте кнопки админ-меню, /admin для перезапуска или /start для выхода.")
     else:
-        await show_main_menu(update, update.effective_user.id)
+        if update.message.text == "📦 Мои заказы":
+            await update.message.reply_text("Раздел 'Мои заказы' в разработке.")
+        else:
+            await show_main_menu(update, update.effective_user.id)
 
 
 async def error_handler(update: object, context: CallbackContext) -> None:
@@ -305,7 +349,6 @@ async def error_handler(update: object, context: CallbackContext) -> None:
 
 
 async def run_bot_async():
-    """Асинхронная функция, которая настраивает и запускает бота."""
     application = Application.builder().token(TOKEN).build()
 
     admin_conv_handler = ConversationHandler(
