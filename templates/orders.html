@@ -3,167 +3,91 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Мои заказы - VIP Sneaker Shop</title>
+    <title>Мои заказы - VibesResell</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: 'Arial', sans-serif;
+        :root {
+            --tg-theme-bg-color: #ffffff;
+            --tg-theme-text-color: #000000;
+            --tg-theme-hint-color: #999999;
+            --tg-theme-link-color: #3390ec;
+            --tg-theme-button-color: #3390ec;
+            --tg-theme-button-text-color: #ffffff;
+            --tg-theme-secondary-bg-color: #f4f4f5;
         }
-        body {
-            background-color: #f8f9fa;
-            padding: 15px;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 15px; background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
+        h1 { margin-bottom: 20px; }
         .order-card {
-            background: white;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            border-left: 4px solid #3498db;
+            background-color: var(--tg-theme-secondary-bg-color);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
         }
         .order-header {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #eee;
-        }
-        .order-id {
             font-weight: bold;
-            color: #2c3e50;
-        }
-        .order-date {
-            color: #7f8c8d;
-            font-size: 14px;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #e0e0e0;
         }
         .order-status {
-            padding: 5px 10px;
-            border-radius: 5px;
-            font-weight: bold;
-            font-size: 14px;
-        }
-        .status-processing {
-            background-color: #f39c12;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 12px;
             color: white;
+            background-color: #95a5a6; /* Серый по умолчанию */
         }
-        .status-sent {
-            background-color: #3498db;
-            color: white;
-        }
-        .status-ready {
-            background-color: #27ae60;
-            color: white;
-        }
-        .status-completed {
-            background-color: #7f8c8d;
-            color: white;
-        }
-        .order-info {
-            margin-bottom: 15px;
-        }
-        .info-item {
-            margin-bottom: 8px;
-            display: flex;
-        }
-        .info-label {
-            font-weight: bold;
-            width: 120px;
-            color: #2c3e50;
-        }
-        .info-value {
-            flex: 1;
-        }
-        .order-items {
-            margin-top: 15px;
-        }
-        .order-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #f1f1f1;
-        }
-        .item-name {
-            flex: 3;
-        }
-        .item-quantity {
-            flex: 1;
-            text-align: center;
-        }
-        .item-price {
-            flex: 1;
-            text-align: right;
-        }
-        .order-total {
-            text-align: right;
-            font-weight: bold;
-            margin-top: 10px;
-            font-size: 18px;
-            padding-top: 10px;
-            border-top: 2px solid #eee;
-        }
-        .no-orders {
-            text-align: center;
-            padding: 40px;
-            color: #7f8c8d;
-        }
+        .order-status.processing { background-color: #f39c12; } /* Обработка */
+        .order-status.shipped { background-color: #3498db; }   /* Отправлен */
+        .order-status.delivered { background-color: #2ecc71; } /* Доставлен */
+        .order-status.cancelled { background-color: #e74c3c; }  /* Отменен */
+
+        .item-list { list-style: none; padding-left: 0; margin-bottom: 10px; }
+        .item-list li { color: var(--tg-theme-hint-color); }
+        .order-footer { text-align: right; font-weight: bold; }
+        .empty-orders { text-align: center; padding: 40px; color: var(--tg-theme-hint-color); }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Мои заказы</h1>
+    <h1>Мои заказы</h1>
 
-        {% if not orders %}
-        <div class="no-orders">
-            <p>У вас еще нет заказов</p>
-            <a href="{{ url_for('index') }}">Перейти в магазин</a>
-        </div>
-        {% else %}
-            {% for order in orders %}
-            <div class="order-card">
-                <div class="order-header">
-                    <div>
-                        <div class="order-id">Заказ #{{ order.id }}</div>
-                        <div class="order-date">{{ order.date_created.strftime('%d.%m.%Y %H:%M') }}</div>
-                    </div>
-                    <div class="order-status status-{{ order.status|lower }}">
-                        {{ order.status }}
-                    </div>
-                </div>
-
-                <div class="order-info">
-                    <div class="info-item">
-                        <span class="info-label">Способ получения:</span>
-                        <span class="info-value">{{ order.delivery_method }}</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Контактная информация:</span>
-                        <span class="info-value">{{ order.contact_info|replace('\n', '<br>')|safe }}</span>
-                    </div>
-                </div>
-
-                <div class="order-items">
-                    <h3>Товары:</h3>
-                    {% for item in order.items %}
-                    <div class="order-item">
-                        <div class="item-name">{{ item.product.name }}</div>
-                        <div class="item-quantity">x{{ item.quantity }}</div>
-                        <div class="item-price">{{ item.product.price * item.quantity }} руб.</div>
-                    </div>
-                    {% endfor %}
-                    <div class="order-total">
-                        Итого: {{ order.total }} руб.
-                    </div>
-                </div>
+    {% if orders %}
+        {% for order in orders %}
+        <div class="order-card">
+            <div class="order-header">
+                <span>Заказ #{{ order.id }} от {{ order.created_at.strftime('%d.%m.%Y') }}</span>
+                <span class="order-status
+                    {% if order.status == 'Обработка' or order.status == 'Ожидает оплаты' %}processing
+                    {% elif order.status == 'Отправлен' %}shipped
+                    {% elif order.status == 'Доставлен' %}delivered
+                    {% elif order.status == 'Отменен' %}cancelled
+                    {% endif %}
+                ">{{ order.status }}</span>
             </div>
-            {% endfor %}
-        {% endif %}
-    </div>
+            <ul class="item-list">
+                {% for item in order.items %}
+                    <li>{{ item.name }} ({{ item.size }}) x {{ item.quantity }}</li>
+                {% endfor %}
+            </ul>
+            {% if order.track_number %}
+            <p><strong>Трек-номер:</strong> {{ order.track_number }}</p>
+            {% endif %}
+            <div class="order-footer">
+                Итого: {{ order.total_amount }} руб.
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="empty-orders">
+            <p>У вас пока нет заказов.</p>
+            <a href="/?user_id={{ user_id }}" style="color: var(--tg-theme-link-color);">Перейти в магазин</a>
+        </div>
+    {% endif %}
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+    </script>
 </body>
 </html>
