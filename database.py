@@ -51,7 +51,6 @@ class Product(Base):
     image_url = Column(String(200))
     is_active = Column(Integer, default=1)
 
-    # Связь с вариантами товара
     variants = relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan")
 
 
@@ -63,7 +62,6 @@ class ProductVariant(Base):
     price = Column(Integer, nullable=False)
     stock = Column(Integer, default=0, nullable=False)
 
-    # Обратная связь
     product = relationship("Product", back_populates="variants")
 
 
@@ -112,17 +110,13 @@ def create_tables():
 
 
 def add_test_products(session):
-    # Создаем основной товар
     product1 = Product(name="Nike Air Jordan 1", brand="Nike", category="sneakers", description="Классика",
                        image_url="https://static.nike.com/a/images/t_PDP_1728_v1/f_auto,q_auto:eco/af53d53d-561f-450a-a483-70a7ceee380f/air-jordan-1-mid-shoes-1zMCFJ.png",
                        composition="Кожа, резина")
-
-    # Создаем варианты для него
     variant1_1 = ProductVariant(product=product1, size="41", price=12000, stock=5)
     variant1_2 = ProductVariant(product=product1, size="42", price=12000, stock=10)
-    variant1_3 = ProductVariant(product=product1, size="43", price=12500, stock=0)  # Нет в наличии
+    variant1_3 = ProductVariant(product=product1, size="43", price=12500, stock=0)
 
-    # Создаем второй товар
     product2 = Product(name="Футболка Supreme", brand="Supreme", category="clothing", description="Box Logo",
                        image_url="https://images.stockx.com/images/Supreme-Box-Logo-Tee-Black.jpg",
                        composition="100% хлопок")

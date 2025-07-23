@@ -1,4 +1,3 @@
-<!-- templates/product.html -->
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -7,14 +6,22 @@
     <title>{{ product.name }} - VibesResell</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        :root { /* Цвета из темы Telegram */ }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0 0 100px 0; background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
-        .product-image { width: 100%; height: auto; max-height: 50vh; object-fit: contain; }
+        :root {
+            --tg-theme-bg-color: #ffffff;
+            --tg-theme-text-color: #000000;
+            --tg-theme-hint-color: #999999;
+            --tg-theme-link-color: #3390ec;
+            --tg-theme-button-color: #3390ec;
+            --tg-theme-button-text-color: #ffffff;
+            --tg-theme-secondary-bg-color: #f4f4f5;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0 0 120px 0; background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
+        .product-image { width: 100%; height: auto; max-height: 50vh; object-fit: contain; background-color: var(--tg-theme-secondary-bg-color); }
         .product-details { padding: 20px; }
         .product-name { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
         .product-brand { margin-bottom: 15px; color: var(--tg-theme-hint-color); }
-        .product-price { color: var(--tg-theme-text-color); font-size: 28px; font-weight: bold; margin-bottom: 15px; }
-        h3 { margin-top: 20px; margin-bottom: 10px; }
+        .product-price { color: var(--tg-theme-text-color); font-size: 28px; font-weight: bold; margin-bottom: 15px; min-height: 42px; }
+        h3 { margin-top: 20px; margin-bottom: 10px; border-bottom: 1px solid var(--tg-theme-secondary-bg-color); padding-bottom: 5px;}
         .size-selector { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
         .size-button {
             padding: 10px 15px;
@@ -24,12 +31,14 @@
             color: var(--tg-theme-text-color);
             cursor: pointer;
             font-size: 16px;
+            transition: all 0.2s ease;
         }
         .size-button.selected {
             border-color: var(--tg-theme-button-color);
             background-color: var(--tg-theme-button-color);
             color: var(--tg-theme-button-text-color);
             font-weight: bold;
+            transform: scale(1.05);
         }
         .size-button:disabled {
             background-color: #eee;
@@ -38,8 +47,8 @@
             text-decoration: line-through;
         }
         .sticky-footer { position: fixed; bottom: 0; left: 0; right: 0; background-color: rgba(255, 255, 255, 0.8); backdrop-filter: blur(10px); padding: 15px; border-top: 1px solid #e0e0e0; }
-        .btn-add-cart { display: block; width: 100%; padding: 15px; background-color: var(--tg-theme-button-color); color: var(--tg-theme-button-text-color); text-align: center; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; }
-        .btn-add-cart:disabled { background-color: #ccc; }
+        .btn-add-cart { display: block; width: 100%; padding: 15px; background-color: var(--tg-theme-button-color); color: var(--tg-theme-button-text-color); text-align: center; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; transition: background-color 0.2s ease; }
+        .btn-add-cart:disabled { background-color: #ccc; cursor: not-allowed; }
         .btn-add-cart.added { background-color: #28a745; }
     </style>
 </head>
@@ -63,7 +72,7 @@
                         {{ variant.size }}
                     </button>
                 {% else %}
-                    <button class="size-button" disabled>
+                    <button class="size-button" disabled title="Нет в наличии">
                         {{ variant.size }}
                     </button>
                 {% endif %}
@@ -82,7 +91,7 @@
     </div>
 
     <div class="sticky-footer">
-        <button class="btn-add-cart" id="add-to-cart-btn" onclick="addToCart()" disabled>Добавить в корзину</button>
+        <button class="btn-add-cart" id="add-to-cart-btn" onclick="addToCart()" disabled>Выберите размер</button>
     </div>
 
     <script>
@@ -94,24 +103,31 @@
         const addToCartBtn = document.getElementById('add-to-cart-btn');
         const sizeButtons = document.querySelectorAll('.size-button:not([disabled])');
 
+        // --- Кнопка "Назад" ---
+        const backButton = tg.BackButton;
+        backButton.show();
+        backButton.onClick(() => {
+            backButton.hide();
+            window.history.back();
+        });
+
+        // --- Логика выбора размера ---
         function selectSize(button) {
-            // Снимаем выделение со всех кнопок
             sizeButtons.forEach(btn => btn.classList.remove('selected'));
-            // Выделяем нажатую
             button.classList.add('selected');
 
-            // Сохраняем информацию о выбранном варианте
             selectedVariant = {
                 id: button.dataset.variantId,
                 size: button.dataset.size,
                 price: parseInt(button.dataset.price)
             };
 
-            // Обновляем цену и активируем кнопку "Добавить в корзину"
             priceDisplay.textContent = `${selectedVariant.price} руб.`;
+            addToCartBtn.textContent = 'Добавить в корзину';
             addToCartBtn.disabled = false;
         }
 
+        // --- Логика добавления в корзину ---
         function addToCart() {
             if (!selectedVariant) {
                 tg.showAlert('Пожалуйста, выберите размер.');
@@ -119,8 +135,6 @@
             }
 
             let cart = JSON.parse(localStorage.getItem('cart')) || {};
-
-            // Создаем уникальный ключ для товара с размером, например "1-42"
             const cartItemId = `{{ product.id }}-${selectedVariant.size}`;
 
             const productData = {
@@ -141,10 +155,17 @@
 
             localStorage.setItem('cart', JSON.stringify(cart));
 
-            // Обратная связь
+            // --- Отправка данных боту для уведомления ---
+            const dataToSend = {
+                type: 'addToCart',
+                product: productData
+            };
+            tg.sendData(JSON.stringify(dataToSend));
+
+            // --- Визуальная обратная связь ---
             addToCartBtn.textContent = 'Добавлено ✓';
             addToCartBtn.classList.add('added');
-            tg.HapticFeedback.notificationOccur('success');
+            tg.HapticFeedback.notificationOccurred('success');
 
             setTimeout(() => {
                 addToCartBtn.textContent = 'Добавить в корзину';
