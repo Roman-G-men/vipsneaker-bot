@@ -2,3 +2,4 @@ Flask==3.0.3
 python-telegram-bot==20.3
 SQLAlchemy==2.0.29
 python-dotenv==1.0.0
+requests
