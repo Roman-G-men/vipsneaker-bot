@@ -7,7 +7,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from sqlalchemy import (create_engine, Column, Integer, String, JSON, DateTime,
-                        func, Text, ForeignKey, inspect)
+                        func, Text, ForeignKey, inspect, update)
 from sqlalchemy.orm import sessionmaker, Session, declarative_base, relationship, scoped_session
 
 # Настройка логирования
@@ -31,7 +31,7 @@ engine = create_engine(DATABASE_URL, echo=False)
 Base = declarative_base()
 
 
-# --- Новые модели данных ---
+# --- Модели данных ---
 class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True)
@@ -96,6 +96,19 @@ def get_session() -> Session:
 
 def get_scoped_session():
     return scoped_session(SessionLocal)
+
+
+# --- Вспомогательные функции ---
+def update_product_field(product_id: int, field_name: str, new_value: any) -> bool:
+    """Обновляет одно поле у товара по его ID."""
+    try:
+        with get_session() as session:
+            session.query(Product).filter(Product.id == product_id).update({field_name: new_value})
+            session.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка при обновлении поля {field_name} для товара {product_id}: {e}", exc_info=True)
+        return False
 
 
 # --- Функции инициализации ---

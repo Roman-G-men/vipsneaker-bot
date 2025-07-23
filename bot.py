@@ -1,4 +1,4 @@
-# bot.py - ПОЛНАЯ ФИНАЛЬНАЯ ВЕРСИЯ С ПРОДВИНУТОЙ АДМИНКОЙ И ПРАВИЛЬНЫМИ ЗАКАЗАМИ
+# bot.py - ПОЛНАЯ ФИНАЛЬНАЯ ВЕРСИЯ С ИНТЕРАКТИВНОЙ АДМИНКОЙ И ВСЕМИ ФУНКЦИЯМИ
 
 import logging
 import os
@@ -13,7 +13,7 @@ from telegram.ext import (
     Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackContext, ConversationHandler,
     CallbackQueryHandler
 )
-from database import get_session, User, Order, Product, ProductVariant
+from database import get_session, User, Order, Product, ProductVariant, update_product_field
 
 # Настройка логирования
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -23,10 +23,12 @@ logger = logging.getLogger(__name__)
 TOKEN = os.getenv("TOKEN")
 WEBAPP_URL = os.getenv("WEBAPP_URL")
 IMGBB_API_KEY = os.getenv("IMGBB_API_KEY")
-ADMIN_IDS = [8141146399, ]  # Убедись, что твой ID правильный
+ADMIN_IDS = [8141146399, ]
 
-# --- Состояния для диалога ---
-(ADMIN_MENU, ADD_NAME, ADD_BRAND, ADD_CATEGORY, ADD_DESCRIPTION, ADD_COMPOSITION, ADD_PHOTO, ADD_VARIANTS) = range(8)
+# --- Состояния для диалогов ---
+(ADMIN_MENU, LIST_PRODUCTS) = range(2)
+(ADD_NAME, ADD_BRAND, ADD_CATEGORY, ADD_DESCRIPTION, ADD_COMPOSITION, ADD_PHOTO, ADD_VARIANTS) = range(2, 9)
+(EDIT_CHOICE, EDIT_FIELD_VALUE) = range(9, 11)
 CANCEL = ConversationHandler.END
 
 # --- Текстовые константы ---
@@ -61,8 +63,7 @@ def admin_only(func):
 
 def upload_to_imgbb(image_bytes, filename="photo.jpg"):
     """Функция для загрузки байтов изображения на ImgBB."""
-    if not IMGBB_API_KEY:
-        raise ValueError("IMGBB_API_KEY не установлен!")
+    if not IMGBB_API_KEY: raise ValueError("IMGBB_API_KEY не установлен!")
     url = "https://api.imgbb.com/1/upload"
     payload = {"key": IMGBB_API_KEY}
     files = {"image": (filename, image_bytes, "image/jpeg")}
@@ -81,9 +82,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Выход из админки и показ главного меню."""
     user_id = update.effective_user.id
     logger.info(f"Пользователь {user_id} запустил/перезапустил бота.")
-    context.user_data.clear()  # Очищаем любые данные от админ-диалогов
+    context.user_data.clear()
+    try:
+        with get_session() as session:
+            if not session.query(User).filter_by(telegram_id=user_id).first():
+                new_user = User(
+                    telegram_id=user_id,
+                    username=update.effective_user.username or f"user_{user_id}",
+                    full_name=update.effective_user.full_name or "Пользователь"
+                )
+                session.add(new_user)
+                session.commit()
+                logger.info(f"Создан новый пользователь: {user_id}")
+    except Exception as e:
+        logger.error(f"Ошибка регистрации пользователя {user_id}: {e}", exc_info=True)
+
     await show_main_menu(update, user_id)
-    return CANCEL  # Гарантированно выходим из любого диалога
+    return CANCEL
 
 
 async def show_main_menu(update: Update, user_id: int) -> None:
@@ -121,7 +136,8 @@ async def get_brand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['new_product']['brand'] = update.message.text
     keyboard = [["кроссовки", "одежда"]]
     await update.message.reply_text("Шаг 3/7: Выберите **категорию**:",
-                                    reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
+                                    reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True,
+                                                                     resize_keyboard=True))
     return ADD_CATEGORY
 
 
@@ -202,15 +218,8 @@ async def done_adding(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     return await admin_panel(update, context)
 
 
-async def cancel_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data.clear()
-    await update.message.reply_text("Действие отменено.")
-    return await admin_panel(update, context)
-
-
 # --- Интерактивный список товаров ---
 async def list_products_paginated(message, context: ContextTypes.DEFAULT_TYPE, page: int = 0, is_edit=False):
-    """Отображает список товаров с пагинацией."""
     with get_session() as session:
         per_page = 5
         offset = page * per_page
@@ -228,12 +237,10 @@ async def list_products_paginated(message, context: ContextTypes.DEFAULT_TYPE, p
                 [InlineKeyboardButton(f"#{product.id} {product.name}", callback_data=f"prod_view_{product.id}_{page}")])
 
     pagination_buttons = []
-    if page > 0:
-        pagination_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"prod_page_{page - 1}"))
-    if (page + 1) * per_page < total_products:
-        pagination_buttons.append(InlineKeyboardButton("Вперед ➡️", callback_data=f"prod_page_{page + 1}"))
-    if pagination_buttons:
-        keyboard.append(pagination_buttons)
+    if page > 0: pagination_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"prod_page_{page - 1}"))
+    if (page + 1) * per_page < total_products: pagination_buttons.append(
+        InlineKeyboardButton("Вперед ➡️", callback_data=f"prod_page_{page + 1}"))
+    if pagination_buttons: keyboard.append(pagination_buttons)
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -247,39 +254,43 @@ async def list_products_paginated(message, context: ContextTypes.DEFAULT_TYPE, p
 
 
 @admin_only
-async def list_products_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def list_products_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await list_products_paginated(update.message, context, page=0)
+    return LIST_PRODUCTS
 
 
-async def product_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def product_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     page = int(query.data.split('_')[-1])
     await list_products_paginated(query.message, context, page=page, is_edit=True)
+    return LIST_PRODUCTS
 
 
-async def view_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def view_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     _, _, product_id, page = query.data.split('_')
+    context.user_data['current_product_id'] = int(product_id)
+    context.user_data['current_page'] = int(page)
+
     with get_session() as session:
         product = session.query(Product).get(product_id)
     if not product:
         await query.edit_message_text("Товар не найден.");
-        return
+        return LIST_PRODUCTS
     variants_text = "\n".join([f"  - {v.size}, {v.price} руб., {v.stock} шт." for v in product.variants])
-    text = (f"**Товар #{product.id}: {product.name}**\n\n"
-            f"**Бренд:** {product.brand}\n"
-            f"**Активен:** {'Да' if product.is_active else 'Нет'}\n\n"
-            f"**Варианты:**\n{variants_text}")
+    text = f"**Товар #{product.id}: {product.name}**\n\n**Активен:** {'Да' if product.is_active else 'Нет'}\n\n**Варианты:**\n{variants_text}"
     keyboard = [
-        [InlineKeyboardButton("🗑️ Удалить товар", callback_data=f"prod_delete_{product.id}")],
+        [InlineKeyboardButton("✏️ Редактировать", callback_data=f"edit_start_{product.id}")],
+        [InlineKeyboardButton("🗑️ Удалить", callback_data=f"prod_delete_{product.id}")],
         [InlineKeyboardButton("⬅️ Назад к списку", callback_data=f"prod_page_{page}")]
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+    return LIST_PRODUCTS
 
 
-async def delete_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def delete_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     product_id = int(query.data.split('_')[-1])
     with get_session() as session:
@@ -291,15 +302,65 @@ async def delete_product_callback(update: Update, context: ContextTypes.DEFAULT_
             await list_products_paginated(query.message, context, page=0, is_edit=True)
         else:
             await query.answer("Товар уже был удален.", show_alert=True)
+    return LIST_PRODUCTS
 
 
-# --- Обработчик данных из WebApp ---
+# --- Диалог редактирования ---
+@admin_only
+async def edit_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    product_id = int(query.data.split('_')[-1])
+    context.user_data['edit_product_id'] = product_id
+
+    keyboard = [
+        [InlineKeyboardButton("Название", callback_data="edit_field_name"),
+         InlineKeyboardButton("Бренд", callback_data="edit_field_brand")],
+        [InlineKeyboardButton("Описание", callback_data="edit_field_description"),
+         InlineKeyboardButton("Состав", callback_data="edit_field_composition")],
+        [InlineKeyboardButton("⬅️ Назад",
+                              callback_data=f"prod_view_{product_id}_{context.user_data.get('current_page', 0)}")]
+    ]
+    await query.edit_message_text(f"Редактирование товара #{product_id}. Что изменить?",
+                                  reply_markup=InlineKeyboardMarkup(keyboard))
+    return EDIT_CHOICE
+
+
+async def edit_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    field_to_edit = query.data.split('_')[-1]
+    context.user_data['edit_field_name'] = field_to_edit
+
+    await query.message.reply_text(f"Введите новое значение для **'{field_to_edit}'**:", parse_mode='Markdown')
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:  # Игнорируем ошибку, если сообщение уже без кнопок
+        pass
+    return EDIT_FIELD_VALUE
+
+
+async def get_new_field_value(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    product_id = context.user_data.get('edit_product_id')
+    field_name = context.user_data.get('edit_field_name')
+    new_value = update.message.text
+
+    if update_product_field(product_id, field_name, new_value):
+        await update.message.reply_text(f"✅ Поле '{field_name}' успешно обновлено!")
+    else:
+        await update.message.reply_text("❌ Произошла ошибка при обновлении.")
+
+    page = context.user_data.get('current_page', 0)
+    await update.message.delete()
+    await list_products_paginated(update.message, context, page=page, is_edit=False)
+    return LIST_PRODUCTS
+
+
+# --- Обработчик данных из WebApp и заказов ---
 async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         data = json.loads(update.effective_message.web_app_data.data)
         user = update.effective_user
-        logger.info(f"Получены данные из WebApp от {user.id}: {data}")
-
         if data.get('type') == 'newOrder':
             with get_session() as session:
                 new_order = Order(
@@ -310,27 +371,24 @@ async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 session.add(new_order);
                 session.commit()
                 order_id = new_order.id
-            logger.info(f"Заказ #{order_id} от пользователя {user.id} успешно сохранен в БД.")
+            logger.info(f"Заказ #{order_id} от пользователя {user.id} сохранен.")
 
             order_text = f"✅ **Ваш заказ #{order_id} успешно оформлен!**\n\n"
-            order_text += "**Состав заказа:**\n"
-            for item in data.get('items', []):
-                order_text += f"- {item.get('name')} ({item.get('size')}) - {item.get('price')} руб.\n"
-            order_text += f"\n**Итого:** {data.get('total_price')} руб.\n\n"
-            order_text += "Мы скоро свяжемся с вами для подтверждения.\nДля связи: @VibeeAdmin / @kir_tg1"
+            order_text += "**Состав:**\n" + "\n".join(
+                [f"- {i.get('name')} ({i.get('size')})" for i in data.get('items', [])])
+            order_text += f"\n\n**Итого:** {data.get('total_price')} руб.\n\n"
+            order_text += "Скоро свяжемся с вами для подтверждения."
             await update.message.reply_text(order_text, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Ошибка обработки данных из WebApp: {e}", exc_info=True)
 
 
-# --- Обработчик обычных сообщений ---
 async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
-    user_id = update.effective_user.id
     if text == "📦 Мои заказы":
         await show_user_orders(update, context)
     else:
-        await show_main_menu(update, user_id)
+        await show_main_menu(update, update.effective_user.id)
 
 
 async def show_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -340,15 +398,12 @@ async def show_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not orders:
         await update.message.reply_text("У вас пока нет оформленных заказов.")
         return
-
     response = "📦 **Ваши последние 5 заказов:**\n\n"
     for order in orders:
         items_list = json.loads(order.items)
         items_text = ", ".join([f"{item['name']} ({item['size']})" for item in items_list])
         response += (f"**Заказ #{order.id}** от {order.created_at.strftime('%d.%m.%Y')}\n"
-                     f"Статус: `{order.status}`\n"
-                     f"Сумма: {order.total_amount} руб.\n"
-                     f"Состав: {items_text}\n\n")
+                     f"Статус: `{order.status}`\nСумма: {order.total_amount} руб.\n\n")
     await update.message.reply_text(response, parse_mode='Markdown')
 
 
@@ -358,11 +413,45 @@ async def error_handler(update: object, context: CallbackContext) -> None:
         with suppress(Exception): await update.effective_message.reply_text("Произошла техническая ошибка.")
 
 
+async def cancel_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Полностью отменяет любой диалог и возвращает в админ-меню."""
+    context.user_data.clear()
+    await update.message.reply_text("Действие отменено.")
+    return await admin_panel(update, context)
+
+
 async def run_bot_async():
     """Асинхронная функция, которая настраивает и запускает бота."""
     application = Application.builder().token(TOKEN).build()
 
-    add_item_handler = ConversationHandler(
+    edit_item_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(edit_item_start, pattern='^edit_start_')],
+        states={
+            EDIT_CHOICE: [CallbackQueryHandler(edit_choice_callback, pattern='^edit_field_')],
+            EDIT_FIELD_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_new_field_value)],
+        },
+        fallbacks=[
+            CommandHandler('cancel', cancel_dialog),
+            CallbackQueryHandler(view_product_callback, pattern='^prod_view_')
+        ],
+        map_to_parent={CANCEL: LIST_PRODUCTS, LIST_PRODUCTS: LIST_PRODUCTS}
+    )
+
+    list_products_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex('^📝 Список товаров$'), list_products_start)],
+        states={
+            LIST_PRODUCTS: [
+                CallbackQueryHandler(product_page_callback, pattern='^prod_page_'),
+                CallbackQueryHandler(view_product_callback, pattern='^prod_view_'),
+                CallbackQueryHandler(delete_product_callback, pattern='^prod_delete_'),
+                edit_item_conv,
+            ]
+        },
+        fallbacks=[CommandHandler('cancel', cancel_dialog)],
+        map_to_parent={CANCEL: ADMIN_MENU}
+    )
+
+    add_item_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex('^➕ Добавить товар$'), add_item_start)],
         states={
             ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
@@ -375,49 +464,22 @@ async def run_bot_async():
                            MessageHandler(filters.TEXT & ~filters.COMMAND, get_variant)]
         },
         fallbacks=[CommandHandler('cancel', cancel_dialog)],
-        allow_reentry=True
+        map_to_parent={CANCEL: ADMIN_MENU}
     )
 
-    admin_handler = ConversationHandler(
+    admin_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("admin", admin_panel)],
         states={
-            ADMIN_MENU: [
-                MessageHandler(filters.Regex('^➕ Добавить товар$'), add_item_start),
-                MessageHandler(filters.Regex('^📝 Список товаров$'), list_products_start),
-            ],
-            # Перенаправляем состояния диалога добавления сюда
-            ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)],
-            ADD_BRAND: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_brand)],
-            ADD_CATEGORY: [MessageHandler(filters.Regex('^(кроссовки|одежда)$'), get_category)],
-            ADD_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_description)],
-            ADD_COMPOSITION: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_composition)],
-            ADD_PHOTO: [MessageHandler(filters.PHOTO, get_photo)],
-            ADD_VARIANTS: [CommandHandler('done', done_adding),
-                           MessageHandler(filters.TEXT & ~filters.COMMAND, get_variant)]
+            ADMIN_MENU: [add_item_conv, list_products_conv],
         },
-        fallbacks=[
-            CommandHandler('cancel', cancel_dialog),
-            CommandHandler('admin', admin_panel),
-            MessageHandler(filters.Regex('^↩️ Выйти из админки$'), start)
-        ],
+        fallbacks=[MessageHandler(filters.Regex('^↩️ Выйти из админки$'), start)],
         allow_reentry=True
     )
 
-    # --- ПРАВИЛЬНЫЙ ПОРЯДОК РЕГИСТРАЦИИ ОБРАБОТЧИКОВ ---
-    application.add_handler(admin_handler)
+    application.add_handler(admin_conv_handler)
     application.add_handler(CommandHandler("start", start))
-
-    # Обработчики инлайн-кнопок
-    application.add_handler(CallbackQueryHandler(product_page_callback, pattern='^prod_page_'))
-    application.add_handler(CallbackQueryHandler(view_product_callback, pattern='^prod_view_'))
-    application.add_handler(CallbackQueryHandler(delete_product_callback, pattern='^prod_delete_'))
-
-    # Обработчик данных из Mini App
     application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, web_app_data_handler))
-
-    # Обработчик обычных текстовых сообщений (самый низкий приоритет)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_regular_messages))
-
     application.add_error_handler(error_handler)
 
     logger.info("Запуск Telegram-бота в режиме polling...")
