@@ -1,4 +1,4 @@
-# webapp.py - ПОЛНАЯ, ФИНАЛЬНАЯ, ИСПРАВЛЕННАЯ ВЕРСЯ
+# webapp.py - ПОЛНАЯ ФИНАЛЬНАЯ ВЕРСИЯ (МАГАЗИН + АДМИН-ПАНЕЛЬ)
 
 import logging
 import json
@@ -16,9 +16,11 @@ logger = logging.getLogger(__name__)
 IMGBB_API_KEY = os.getenv("IMGBB_API_KEY")
 
 app = Flask(__name__)
+# Устанавливаем секретный ключ для работы flash-сообщений
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'a_very_secret_key_for_development')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 
+# Создаем фабрику сессий, которая будет уникальна для каждого запроса
 Session = get_scoped_session()
 
 
@@ -34,14 +36,19 @@ ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'secret123')
 
 
 def check_auth(username, password):
+    """Проверяет логин и пароль."""
     return username == ADMIN_USER and password == ADMIN_PASSWORD
 
 
 def authenticate():
-    return Response('Требуется авторизация.', 401, {'WWW-Authenticate': 'Basic realm="Login Required"'})
+    """Отправляет ответ с требованием авторизации."""
+    return Response('Требуется авторизация для доступа к админ-панели.', 401,
+                    {'WWW-Authenticate': 'Basic realm="Login Required"'})
 
 
 def requires_auth(f):
+    """Декоратор для защиты роутов админ-панели."""
+
     def decorated(*args, **kwargs):
         auth = request.authorization
         if not auth or not check_auth(auth.username, auth.password):
@@ -52,21 +59,24 @@ def requires_auth(f):
     return decorated
 
 
-# --- МАРШРУТЫ МАГАЗИНА ---
+# --- МАРШРУТЫ МАГАЗИНА (ДЛЯ ПОЛЬЗОВАТЕЛЕЙ) ---
 @app.route('/')
 def index():
     user_id = request.args.get('user_id', '')
-    products = Session.query(Product).filter_by(is_active=1).order_by(Product.name).all()
-    return render_template('index.html', products=products, user_id=user_id)
+    try:
+        products = Session.query(Product).filter_by(is_active=1).order_by(Product.name).all()
+        return render_template('index.html', products=products, user_id=user_id)
+    except SQLAlchemyError as e:
+        logger.error(f"WEBAPP: Ошибка при загрузке товаров: {e}", exc_info=True)
+        return render_template('error.html', message="Не удалось загрузить каталог товаров."), 500
 
 
 @app.route('/product/<int:product_id>')
 def product_detail(product_id):
     user_id = request.args.get('user_id', '')
-    # ИСПРАВЛЕНИЕ: Заменяем first_or_404 на .first() и ручную проверку
     product = Session.query(Product).filter_by(id=product_id, is_active=1).first()
     if not product:
-        abort(404)  # Если товар не найден, возвращаем стандартную ошибку 404
+        abort(404)  # Если товар не найден или неактивен, возвращаем стандартную ошибку 404
     return render_template('product.html', product=product, user_id=user_id)
 
 
@@ -80,7 +90,8 @@ def cart_page():
 def create_order():
     try:
         data = request.json
-        if not all(k in data for k in ['user_id', 'items', 'delivery_type', 'phone', 'address', 'total_price']):
+        required_fields = ['user_id', 'items', 'delivery_type', 'phone', 'address', 'total_price']
+        if not all(k in data for k in required_fields):
             return jsonify({"status": "error", "message": "Не все обязательные поля заполнены."}), 400
 
         order = Order(
@@ -102,7 +113,7 @@ def create_order():
         return jsonify({"status": "error", "message": "Внутренняя ошибка сервера."}), 500
 
 
-# --- МАРШРУТЫ АДМИН-ПАНЕЛИ ---
+# --- МАРШРУТЫ АДМИН-ПАНЕЛИ (ДЛЯ АДМИНИСТРАТОРА) ---
 def upload_to_imgbb(image_file):
     """Функция для загрузки изображения на ImgBB."""
     if not IMGBB_API_KEY:
@@ -129,7 +140,9 @@ def upload_to_imgbb(image_file):
 def admin_dashboard():
     products_count = Session.query(Product).count()
     orders_count = Session.query(Order).count()
-    return render_template('admin/dashboard.html', products_count=products_count, orders_count=orders_count)
+    pending_orders = Session.query(Order).filter(Order.status.in_(['Ожидает оплаты', 'Обработка'])).count()
+    return render_template('admin/dashboard.html', products_count=products_count, orders_count=orders_count,
+                           pending_orders=pending_orders)
 
 
 @app.route('/admin/products')
@@ -137,6 +150,21 @@ def admin_dashboard():
 def admin_products():
     products = Session.query(Product).order_by(Product.id.desc()).all()
     return render_template('admin/products.html', products=products)
+
+
+@app.route('/admin/orders')
+@requires_auth
+def admin_orders():
+    try:
+        orders = Session.query(Order).order_by(Order.created_at.desc()).all()
+        for order in orders:
+            if isinstance(order.items, str):
+                order.items = json.loads(order.items)
+        return render_template('admin/orders.html', orders=orders)
+    except Exception as e:
+        logger.error(f"Ошибка получения списка заказов: {e}", exc_info=True)
+        flash("Не удалось загрузить список заказов.", "danger")
+        return render_template('admin/orders.html', orders=[])
 
 
 @app.route('/admin/product/add', methods=['GET', 'POST'])
@@ -176,10 +204,8 @@ def add_product():
 @app.route('/admin/product/edit/<int:product_id>', methods=['GET', 'POST'])
 @requires_auth
 def edit_product(product_id):
-    # ИСПРАВЛЕНИЕ: Заменяем get_or_404 на .get() и ручную проверку
     product = Session.query(Product).get(product_id)
-    if not product:
-        abort(404)
+    if not product: abort(404)
 
     if request.method == 'POST':
         try:
@@ -190,13 +216,13 @@ def edit_product(product_id):
             elif request.form.get('image_url'):
                 image_url = request.form.get('image_url').strip()
 
-            product.name = request.form['name']
-            product.category = request.form['category']
+            product.name = request.form['name'];
+            product.category = request.form['category'];
             product.brand = request.form['brand']
-            product.size = request.form['size']
-            product.price = int(request.form['price'])
+            product.size = request.form['size'];
+            product.price = int(request.form['price']);
             product.description = request.form['description']
-            product.composition = request.form.get('composition')
+            product.composition = request.form.get('composition');
             product.image_url = image_url
             product.is_active = 1 if 'is_active' in request.form else 0
 
@@ -214,10 +240,8 @@ def edit_product(product_id):
 @app.route('/admin/product/delete/<int:product_id>', methods=['POST'])
 @requires_auth
 def delete_product(product_id):
-    # ИСПРАВЛЕНИЕ: Заменяем get_or_404 на .get() и ручную проверку
     product = Session.query(Product).get(product_id)
-    if not product:
-        abort(404)
+    if not product: abort(404)
 
     try:
         Session.delete(product)
@@ -229,3 +253,22 @@ def delete_product(product_id):
         flash(f"Ошибка удаления товара: {e}", "danger")
 
     return redirect(url_for('admin_products'))
+
+
+@app.route('/admin/order/update/<int:order_id>', methods=['POST'])
+@requires_auth
+def update_order_route(order_id):
+    try:
+        order = Session.query(Order).get(order_id)
+        if order:
+            order.status = request.form['status']
+            order.track_number = request.form.get('track_number', '').strip()
+            Session.commit()
+            flash(f"Статус заказа #{order_id} успешно обновлен.", "success")
+        else:
+            flash(f"Заказ #{order_id} не найден.", "warning")
+    except (SQLAlchemyError, KeyError) as e:
+        Session.rollback()
+        logger.error(f"Ошибка обновления заказа #{order_id}: {e}", exc_info=True)
+        flash("Произошла ошибка при обновлении заказа.", "danger")
+    return redirect(url_for('admin_orders'))

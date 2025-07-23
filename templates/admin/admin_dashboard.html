@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Панель управления - VibesResell</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 900px; margin: 40px auto; }
+        header { text-align: center; margin-bottom: 40px; }
+        header h1 { font-size: 2.5em; color: #2c3e50; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 40px; }
+        .stat-card { background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; }
+        .stat-card .value { font-size: 2.5em; font-weight: 700; color: #3498db; }
+        .stat-card .label { font-size: 1em; color: #7f8c8d; margin-top: 5px; }
+        .actions { text-align: center; }
+        .action-btn {
+            display: inline-block;
+            padding: 15px 30px;
+            margin: 0 10px;
+            background-color: #3498db;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 5px;
+            font-size: 1.1em;
+            font-weight: 500;
+            transition: background-color 0.3s;
+        }
+        .action-btn:hover { background-color: #2980b9; }
+        .action-btn.secondary { background-color: #2ecc71; }
+        .action-btn.secondary:hover { background-color: #27ae60; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Панель управления VibesResell</h1>
+        </header>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="value">{{ products_count }}</div>
+                <div class="label">Товаров в каталоге</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ orders_count }}</div>
+                <div class="label">Всего заказов</div>
+            </div>
+            <div class="stat-card">
+                <div class="value">{{ pending_orders | default(0) }}</div>
+                <div class="label">Ожидают обработки</div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <a href="{{ url_for('admin_products') }}" class="action-btn">Управление товарами</a>
+            <a href="{{ url_for('admin_orders') }}" class="action-btn secondary">Просмотр заказов</a>
+        </div>
+    </div>
+</body>
+</html>

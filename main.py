@@ -1,3 +1,5 @@
+# main.py - ФИНАЛЬНАЯ ВЕРСИЯ ДЛЯ РАБОТЫ С ВНЕШНИМ ТОННЕЛЕМ (Cloudflared)
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,7 +13,6 @@ from sqlalchemy import text
 from database import get_session, init_db
 from bot import run_bot_async
 from webapp import app as web_app
-from admin_panel import app as admin_app
 
 # Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -19,11 +20,11 @@ logger = logging.getLogger(__name__)
 
 # --- Константы ---
 WEBAPP_PORT = 5000
-ADMIN_PORT = 5001
+ADMIN_PORT = 5001  # Админка теперь часть webapp, но порт может быть полезен
 
 
 def check_db_connection():
-    """Проверка подключения к базе данных"""
+    """Проверка подключения к базе данных."""
     try:
         with get_session() as session:
             session.execute(text("SELECT 1"))
@@ -35,13 +36,10 @@ def check_db_connection():
 
 
 def run_webapp():
-    logger.info(f"Запуск основного веб-приложения на порту {WEBAPP_PORT}")
+    """Запуск веб-приложения (магазин + админка)."""
+    logger.info(f"Запуск веб-приложения на порту {WEBAPP_PORT}")
+    # Важно: мы запускаем только один Flask app, который содержит и магазин, и админку
     web_app.run(host='0.0.0.0', port=WEBAPP_PORT, use_reloader=False)
-
-
-def run_admin_panel():
-    logger.info(f"Запуск админ-панели на порту {ADMIN_PORT}")
-    admin_app.run(host='0.0.0.0', port=ADMIN_PORT, use_reloader=False)
 
 
 def run_telegram_bot_thread():
@@ -63,13 +61,18 @@ if __name__ == "__main__":
     logger.info(" ЗАПУСК ПРОЕКТА VIP SNEAKER BOT ")
     logger.info("=" * 50)
 
-    # Критически важная проверка
-    if not os.getenv("WEBAPP_URL") or not os.getenv("WEBAPP_URL").startswith("https"):
-        logger.critical("❌ URL для WebApp не найден или не является HTTPS!")
-        logger.critical("Пожалуйста, запустите тоннель (например, cloudflared) и добавьте WEBAPP_URL в .env файл.")
+    # Критически важная проверка URL из .env файла
+    webapp_url = os.getenv("WEBAPP_URL")
+    if not webapp_url or not webapp_url.startswith("https"):
+        logger.critical("=" * 50)
+        logger.critical("❌ ОШИБКА: WEBAPP_URL не найден или не является HTTPS!")
+        logger.critical("1. Запустите `cloudflared tunnel --url http://localhost:5000` в отдельном терминале.")
+        logger.critical("2. Скопируйте полученный https-адрес.")
+        logger.critical("3. Вставьте его в файл .env и перезапустите проект.")
+        logger.critical("=" * 50)
         exit(1)
 
-    logger.info(f"Используется публичный URL: {os.getenv('WEBAPP_URL')}")
+    logger.info(f"Используется публичный URL: {webapp_url}")
 
     if not init_db():
         logger.error("Не удалось инициализировать БД. Завершение работы.")
@@ -79,20 +82,26 @@ if __name__ == "__main__":
         logger.error("Не удалось подключиться к БД. Завершение работы.")
         exit(1)
 
+    # Запускаем всего два потока
     threads = []
+
     web_thread = threading.Thread(target=run_webapp, name="WebApp")
-    admin_thread = threading.Thread(target=run_admin_panel, name="AdminPanel")
     bot_thread = threading.Thread(target=run_telegram_bot_thread, name="TelegramBot")
 
-    for thread in [web_thread, admin_thread, bot_thread]:
+    for thread in [web_thread, bot_thread]:
         thread.daemon = True
         thread.start()
+        logger.info(f"Запущен поток: {thread.name}")
 
     logger.info("Все компоненты успешно запущены")
+    logger.info(f"Магазин доступен по публичному URL: {webapp_url}")
+    logger.info(f"Админ-панель доступна локально: http://localhost:{WEBAPP_PORT}/admin")
+
     try:
         while True:
-            if not bot_thread.is_alive():
-                logger.error("Поток бота неожиданно завершился. Завершение работы.")
+            # Проверяем, что все потоки живы
+            if not all(t.is_alive() for t in threads):
+                logger.error("Один из потоков неожиданно завершился. Остановка приложения.")
                 break
             time.sleep(5)
     except KeyboardInterrupt:
