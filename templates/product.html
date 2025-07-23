@@ -3,8 +3,8 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ product.name }} - VIPSneaker</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>{{ product.name }} - VibesResell</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
@@ -16,19 +16,25 @@
             --tg-theme-button-text-color: #ffffff;
             --tg-theme-secondary-bg-color: #f4f4f5;
         }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 0; background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
-        .product-image { width: 100%; height: auto; max-height: 50vh; object-fit: contain; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 0 0 100px 0; /* Добавлен отступ снизу */ background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
+        .product-image { width: 100%; height: auto; max-height: 50vh; object-fit: contain; background-color: var(--tg-theme-secondary-bg-color); }
         .product-details { padding: 20px; }
         .product-name { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
-        .product-brand, .product-size { margin-bottom: 5px; color: var(--tg-theme-hint-color); }
-        .product-price { color: var(--tg-theme-link-color); font-size: 28px; font-weight: bold; margin: 15px 0; }
-        .product-description { margin-bottom: 20px; line-height: 1.5; }
+        .product-meta { margin-bottom: 15px; color: var(--tg-theme-hint-color); display: flex; gap: 15px; }
+        .product-price { color: var(--tg-theme-text-color); font-size: 28px; font-weight: bold; margin-bottom: 15px; }
+        .product-description { margin-bottom: 20px; line-height: 1.6; }
+
         .sticky-footer {
-            position: sticky;
+            position: fixed;
             bottom: 0;
-            background-color: var(--tg-theme-secondary-bg-color);
+            left: 0;
+            right: 0;
+            background-color: rgba(255, 255, 255, 0.8);
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
             padding: 15px;
-            border-top: 1px solid #e0e0e0;
+            border-top: 1px solid var(--tg-theme-secondary-bg-color);
+            z-index: 100;
         }
         .btn-add-cart {
             display: block;
@@ -56,9 +62,21 @@
 
     <div class="product-details">
         <h1 class="product-name">{{ product.name }}</h1>
-        <p class="product-brand"><strong>Бренд:</strong> {{ product.brand }}</p>
-        <p class="product-size"><strong>Размер:</strong> {{ product.size }}</p>
-        <p class="product-price">{{ product.price }} руб.</p>
+        <div class="product-meta">
+            <span><strong>Бренд:</strong> {{ product.brand }}</span>
+            <span><strong>Размер:</strong> {{ product.size }}</span>
+        </div>
+        <div class="product-price">{{ product.price }} руб.</div>
+
+        <!-- <<< БЛОК ДЛЯ ОТОБРАЖЕНИЯ СОСТАВА >>> -->
+        {% if product.composition %}
+        <div class="product-composition">
+            <h3>Состав</h3>
+            <p>{{ product.composition }}</p>
+        </div>
+        {% endif %}
+
+        <h3>Описание</h3>
         <p class="product-description">{{ product.description }}</p>
     </div>
 
@@ -70,9 +88,7 @@
         const tg = window.Telegram.WebApp;
         tg.ready();
 
-        // <<< ОСНОВНАЯ ЛОГИКА ДОБАВЛЕНИЯ В КОРЗИНУ >>>
         function addToCart(button) {
-            // Получаем текущую корзину из localStorage или создаем пустой объект
             let cart = JSON.parse(localStorage.getItem('cart')) || {};
 
             const product = {
@@ -84,26 +100,20 @@
                 quantity: 1
             };
 
-            // Если товар уже есть в корзине, просто увеличиваем его количество
             if (cart[product.id]) {
                 cart[product.id].quantity += 1;
             } else {
-                // Если товара нет, добавляем его в корзину
                 cart[product.id] = product;
             }
 
-            // Сохраняем обновленную корзину обратно в localStorage
             localStorage.setItem('cart', JSON.stringify(cart));
 
-            // Даем пользователю визуальную и тактильную обратную связь
             button.textContent = 'Добавлено ✓';
             button.classList.add('added');
-            button.disabled = true; // Блокируем кнопку после нажатия
+            button.disabled = true;
 
-            // Виброотклик об успехе
             tg.HapticFeedback.notificationOccur('success');
 
-            // Через 1.5 секунды возвращаем кнопку в исходное состояние
             setTimeout(() => {
                 button.textContent = 'Добавить в корзину';
                 button.classList.remove('added');
