@@ -1,48 +1,114 @@
+<!-- templates/product.html -->
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ product.name }} - VIPSneaker</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: Arial, sans-serif; }
-        body { background-color: #f5f5f5; padding: 20px; }
-        .product-container { max-width: 500px; margin: 0 auto; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .product-image { width: 100%; height: 300px; object-fit: cover; }
+        :root {
+            --tg-theme-bg-color: #ffffff;
+            --tg-theme-text-color: #000000;
+            --tg-theme-hint-color: #999999;
+            --tg-theme-link-color: #3390ec;
+            --tg-theme-button-color: #3390ec;
+            --tg-theme-button-text-color: #ffffff;
+            --tg-theme-secondary-bg-color: #f4f4f5;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 0; background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
+        .product-image { width: 100%; height: auto; max-height: 50vh; object-fit: contain; }
         .product-details { padding: 20px; }
-        .product-name { font-size: 1.5em; margin-bottom: 10px; }
-        .product-brand, .product-size { margin-bottom: 5px; color: #666; }
-        .product-price { color: #e53935; font-size: 1.8em; margin: 15px 0; }
+        .product-name { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
+        .product-brand, .product-size { margin-bottom: 5px; color: var(--tg-theme-hint-color); }
+        .product-price { color: var(--tg-theme-link-color); font-size: 28px; font-weight: bold; margin: 15px 0; }
         .product-description { margin-bottom: 20px; line-height: 1.5; }
-        .btn-add-cart { display: block; width: 100%; padding: 15px; background: #4CAF50; color: white; text-align: center; text-decoration: none; border: none; border-radius: 5px; font-size: 1.1em; cursor: pointer; }
+        .sticky-footer {
+            position: sticky;
+            bottom: 0;
+            background-color: var(--tg-theme-secondary-bg-color);
+            padding: 15px;
+            border-top: 1px solid #e0e0e0;
+        }
+        .btn-add-cart {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background-color: var(--tg-theme-button-color);
+            color: var(--tg-theme-button-text-color);
+            text-align: center;
+            text-decoration: none;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        .btn-add-cart.added {
+            background-color: #28a745; /* Зеленый цвет успеха */
+        }
     </style>
 </head>
 <body>
-    <div class="product-container">
-        <img src="{{ product.image_url }}" alt="{{ product.name }}" class="product-image">
-        <div class="product-details">
-            <h1 class="product-name">{{ product.name }}</h1>
-            <div class="product-brand"><strong>Бренд:</strong> {{ product.brand }}</div>
-            <div class="product-size"><strong>Размер:</strong> {{ product.size }}</div>
-            <div class="product-price">{{ product.price }} руб.</div>
-            <p class="product-description">{{ product.description }}</p>
-            <button class="btn-add-cart" onclick="addToCart()">Добавить в корзину</button>
-        </div>
+
+    <img src="{{ product.image_url }}" alt="{{ product.name }}" class="product-image">
+
+    <div class="product-details">
+        <h1 class="product-name">{{ product.name }}</h1>
+        <p class="product-brand"><strong>Бренд:</strong> {{ product.brand }}</p>
+        <p class="product-size"><strong>Размер:</strong> {{ product.size }}</p>
+        <p class="product-price">{{ product.price }} руб.</p>
+        <p class="product-description">{{ product.description }}</p>
+    </div>
+
+    <div class="sticky-footer">
+        <button class="btn-add-cart" onclick="addToCart(this)">Добавить в корзину</button>
     </div>
 
     <script>
-        function addToCart() {
-            const productData = {
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+
+        // <<< ОСНОВНАЯ ЛОГИКА ДОБАВЛЕНИЯ В КОРЗИНУ >>>
+        function addToCart(button) {
+            // Получаем текущую корзину из localStorage или создаем пустой объект
+            let cart = JSON.parse(localStorage.getItem('cart')) || {};
+
+            const product = {
                 id: {{ product.id }},
                 name: "{{ product.name }}",
                 price: {{ product.price }},
-                size: "{{ product.size }}"
+                image_url: "{{ product.image_url }}",
+                size: "{{ product.size }}",
+                quantity: 1
             };
 
-            Telegram.WebApp.sendData(JSON.stringify({
-                action: "add_to_cart",
-                product: productData
-            }));
+            // Если товар уже есть в корзине, просто увеличиваем его количество
+            if (cart[product.id]) {
+                cart[product.id].quantity += 1;
+            } else {
+                // Если товара нет, добавляем его в корзину
+                cart[product.id] = product;
+            }
 
-            Telegram.WebApp.close();
+            // Сохраняем обновленную корзину обратно в localStorage
+            localStorage.setItem('cart', JSON.stringify(cart));
+
+            // Даем пользователю визуальную и тактильную обратную связь
+            button.textContent = 'Добавлено ✓';
+            button.classList.add('added');
+            button.disabled = true; // Блокируем кнопку после нажатия
+
+            // Виброотклик об успехе
+            tg.HapticFeedback.notificationOccur('success');
+
+            // Через 1.5 секунды возвращаем кнопку в исходное состояние
+            setTimeout(() => {
+                button.textContent = 'Добавить в корзину';
+                button.classList.remove('added');
+                button.disabled = false;
+            }, 1500);
         }
     </script>
 </body>
