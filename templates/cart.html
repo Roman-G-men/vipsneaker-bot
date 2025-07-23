@@ -29,7 +29,7 @@
     <div id="checkout-form" style="display: none;">
         <h3>Данные для доставки</h3>
         <input type="text" id="phone" placeholder="Ваш телефон для связи *">
-        <input type="text" id="address" placeholder="Адрес (город, улица, дом) *">
+        <input type.text id="address" placeholder="Адрес (город, улица, дом) *">
     </div>
 
     <script>
@@ -120,8 +120,6 @@
             tg.sendData(JSON.stringify(orderData));
             localStorage.removeItem('cart');
 
-            // Телеграм гарантирует доставку, поэтому мы можем закрыть сразу
-            // Небольшая задержка, чтобы пользователь увидел, что кнопка нажалась
             setTimeout(() => {
                 tg.close();
             }, 200);

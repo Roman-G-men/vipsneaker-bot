@@ -7,7 +7,6 @@ from flask import Flask, render_template, request, abort
 from sqlalchemy.exc import SQLAlchemyError
 from database import get_scoped_session, Product, Order, User
 
-# Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -56,7 +55,10 @@ def user_orders():
         orders = Session.query(Order).filter_by(user_id=user_id).order_by(Order.created_at.desc()).all()
         for order in orders:
             if isinstance(order.items, str):
-                order.items = json.loads(order.items)
+                try:
+                    order.items = json.loads(order.items)
+                except json.JSONDecodeError:
+                    order.items = []
         return render_template('orders.html', orders=orders, user_id=user_id)
     except Exception as e:
         logger.error(f"WEBAPP: Ошибка загрузки заказов {user_id}: {e}", exc_info=True)
