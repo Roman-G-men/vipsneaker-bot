@@ -6,16 +6,8 @@
     <title>Моя корзина</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        :root {
-            --tg-theme-bg-color: #ffffff;
-            --tg-theme-text-color: #000000;
-            --tg-theme-hint-color: #999999;
-            --tg-theme-link-color: #3390ec;
-            --tg-theme-button-color: #3390ec;
-            --tg-theme-button-text-color: #ffffff;
-            --tg-theme-secondary-bg-color: #f4f4f5;
-        }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 15px; background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
+        :root { /* Цвета из темы Telegram */ }
+        body { font-family: -apple-system, sans-serif; margin: 0; padding: 15px; background-color: var(--tg-theme-bg-color); color: var(--tg-theme-text-color); }
         h1 { margin-bottom: 20px; }
         .cart-item { display: flex; align-items: center; margin-bottom: 15px; border-bottom: 1px solid var(--tg-theme-secondary-bg-color); padding-bottom: 15px; }
         .cart-item img { width: 70px; height: 70px; object-fit: cover; border-radius: 8px; margin-right: 15px; }
@@ -27,20 +19,7 @@
         .item-price { font-weight: bold; }
         .total-section { margin-top: 20px; padding-top: 20px; border-top: 2px solid var(--tg-theme-secondary-bg-color); text-align: right; }
         #total-price { font-size: 1.5em; font-weight: bold; }
-        .checkout-button {
-            display: none; /* Скрыта по умолчанию, пока есть товары */
-            width: 100%;
-            padding: 15px;
-            background-color: var(--tg-theme-button-color);
-            color: var(--tg-theme-button-text-color);
-            text-align: center;
-            border: none;
-            border-radius: 12px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            margin-top: 20px;
-        }
+        .checkout-button { display: none; width: 100%; padding: 15px; background-color: var(--tg-theme-button-color); color: var(--tg-theme-button-text-color); text-align: center; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 20px; }
         .empty-cart-message { text-align: center; padding: 40px; color: var(--tg-theme-hint-color); }
     </style>
 </head>
@@ -48,7 +27,7 @@
     <h1>Ваша корзина</h1>
     <div id="cart-items"></div>
 
-    <div id="checkout-section">
+    <div id="checkout-section" style="display: none;">
         <div class="total-section">
             <p id="total-price"></p>
         </div>
@@ -78,6 +57,7 @@
                 checkoutSection.style.display = 'none';
             } else {
                 items.forEach(item => {
+                    const cartItemId = `${item.id}-${item.size}`;
                     const itemEl = document.createElement('div');
                     itemEl.className = 'cart-item';
                     itemEl.innerHTML = `
@@ -85,9 +65,9 @@
                         <div class="item-details">
                             <b>${item.name} (${item.size})</b>
                             <div class="quantity-controls">
-                                <button onclick="changeQuantity('${item.id}-${item.size}', -1)">-</button>
+                                <button onclick="changeQuantity('${cartItemId}', -1)">-</button>
                                 <span>${item.quantity}</span>
-                                <button onclick="changeQuantity('${item.id}-${item.size}', 1)">+</button>
+                                <button onclick="changeQuantity('${cartItemId}', 1)">+</button>
                             </div>
                         </div>
                         <div class="item-price">${item.price * item.quantity} руб.</div>
@@ -104,9 +84,7 @@
         function changeQuantity(cartItemId, delta) {
             if (cart[cartItemId]) {
                 cart[cartItemId].quantity += delta;
-                if (cart[cartItemId].quantity <= 0) {
-                    delete cart[cartItemId];
-                }
+                if (cart[cartItemId].quantity <= 0) delete cart[cartItemId];
                 saveCartAndRedraw();
             }
         }
@@ -118,27 +96,20 @@
         }
 
         function createOrder() {
-            // Показываем пользователю, что что-то происходит
             checkoutButton.disabled = true;
             checkoutButton.textContent = 'Формируем...';
             tg.HapticFeedback.impactOccurred('medium');
 
             const orderData = {
-                type: 'newOrder', // Указываем тип события
+                type: 'newOrder',
                 items: Object.values(cart),
                 total_price: Object.values(cart).reduce((sum, item) => sum + item.price * item.quantity, 0)
             };
 
-            // Отправляем данные заказа боту
             tg.sendData(JSON.stringify(orderData));
-
-            // Очищаем корзину и закрываем приложение
             localStorage.removeItem('cart');
 
-            // Небольшая задержка, чтобы пользователь успел увидеть "Формируем..."
-            setTimeout(() => {
-                tg.close();
-            }, 500);
+            setTimeout(() => { tg.close(); }, 500);
         }
 
         displayCart();
