@@ -1,4 +1,4 @@
-# bot.py - ПОЛНАЯ ФИНАЛЬНАЯ ВЕРСИЯ С ИНТЕРАКТИВНОЙ АДМИНКОЙ И ВСЕМИ ФУНКЦИЯМИ
+# bot.py - АБСОЛЮТНО ПОЛНАЯ ФИНАЛЬНАЯ ВЕРСИЯ С РАБОЧЕЙ АДМИНКОЙ И "МЯГКИМИ" ЗАКАЗАМИ
 
 import logging
 import os
@@ -13,7 +13,7 @@ from telegram.ext import (
     Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackContext, ConversationHandler,
     CallbackQueryHandler
 )
-from database import get_session, User, Order, Product, ProductVariant, update_product_field
+from database import get_session, User, Order, Product, ProductVariant, update_entity_field
 
 # Настройка логирования
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -279,18 +279,34 @@ async def view_product_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if not product:
         await query.edit_message_text("Товар не найден.");
         return LIST_PRODUCTS
-    variants_text = "\n".join([f"  - {v.size}, {v.price} руб., {v.stock} шт." for v in product.variants])
-    text = f"**Товар #{product.id}: {product.name}**\n\n**Активен:** {'Да' if product.is_active else 'Нет'}\n\n**Варианты:**\n{variants_text}"
+    variants_text = "\n".join([f"  - ID:{v.id} {v.size}, {v.price} руб., {v.stock} шт." for v in product.variants])
+    text = (f"**Товар #{product.id}: {product.name}**\n\n"
+            f"**Активен:** {'Да' if product.is_active else 'Нет'}\n\n"
+            f"**Варианты:**\n{variants_text}")
     keyboard = [
-        [InlineKeyboardButton("✏️ Редактировать", callback_data=f"edit_start_{product.id}")],
-        [InlineKeyboardButton("🗑️ Удалить", callback_data=f"prod_delete_{product.id}")],
+        [InlineKeyboardButton("✏️ Редактировать", callback_data=f"edit_start_{product_id}")],
+        [InlineKeyboardButton("🗑️ Удалить", callback_data=f"prod_delete_confirm_{product_id}")],
         [InlineKeyboardButton("⬅️ Назад к списку", callback_data=f"prod_page_{page}")]
     ]
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     return LIST_PRODUCTS
 
 
-async def delete_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def delete_product_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    product_id = int(query.data.split('_')[-1])
+    keyboard = [
+        [InlineKeyboardButton("✅ Да, удалить", callback_data=f"prod_delete_execute_{product_id}")],
+        [InlineKeyboardButton("❌ Нет, отмена",
+                              callback_data=f"prod_view_{product_id}_{context.user_data.get('current_page', 0)}")]
+    ]
+    await query.edit_message_text(f"Вы уверены, что хотите удалить товар #{product_id} и все его варианты?",
+                                  reply_markup=InlineKeyboardMarkup(keyboard))
+    return LIST_PRODUCTS
+
+
+async def delete_product_execute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     product_id = int(query.data.split('_')[-1])
     with get_session() as session:
@@ -312,17 +328,21 @@ async def edit_item_start(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.answer()
     product_id = int(query.data.split('_')[-1])
     context.user_data['edit_product_id'] = product_id
+    with get_session() as session:
+        product = session.query(Product).get(product_id)
 
     keyboard = [
         [InlineKeyboardButton("Название", callback_data="edit_field_name"),
          InlineKeyboardButton("Бренд", callback_data="edit_field_brand")],
         [InlineKeyboardButton("Описание", callback_data="edit_field_description"),
          InlineKeyboardButton("Состав", callback_data="edit_field_composition")],
-        [InlineKeyboardButton("⬅️ Назад",
+        [InlineKeyboardButton(f"Активность ({'Вкл' if product.is_active else 'Выкл'})",
+                              callback_data="edit_toggle_active")],
+        [InlineKeyboardButton("⬅️ Назад к товару",
                               callback_data=f"prod_view_{product_id}_{context.user_data.get('current_page', 0)}")]
     ]
-    await query.edit_message_text(f"Редактирование товара #{product_id}. Что изменить?",
-                                  reply_markup=InlineKeyboardMarkup(keyboard))
+    await query.edit_message_text(f"Редактирование **{product.name}**\nЧто изменить?",
+                                  reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
     return EDIT_CHOICE
 
 
@@ -335,7 +355,7 @@ async def edit_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.message.reply_text(f"Введите новое значение для **'{field_to_edit}'**:", parse_mode='Markdown')
     try:
         await query.edit_message_reply_markup(reply_markup=None)
-    except Exception:  # Игнорируем ошибку, если сообщение уже без кнопок
+    except Exception:
         pass
     return EDIT_FIELD_VALUE
 
@@ -345,15 +365,30 @@ async def get_new_field_value(update: Update, context: ContextTypes.DEFAULT_TYPE
     field_name = context.user_data.get('edit_field_name')
     new_value = update.message.text
 
-    if update_product_field(product_id, field_name, new_value):
-        await update.message.reply_text(f"✅ Поле '{field_name}' успешно обновлено!")
-    else:
-        await update.message.reply_text("❌ Произошла ошибка при обновлении.")
+    with get_session() as session:
+        update_entity_field(session, Product, product_id, field_name, new_value)
+    await update.message.reply_text(f"✅ Поле '{field_name}' успешно обновлено!")
 
     page = context.user_data.get('current_page', 0)
     await update.message.delete()
-    await list_products_paginated(update.message, context, page=page, is_edit=False)
+    # "Обманываем" систему, чтобы вернуться в меню просмотра этого товара
+    fake_query = type('obj', (), {'data': f"prod_view_{product_id}_{page}", 'message': update.message,
+                                  'answer': lambda *a, **kw: asyncio.sleep(0)})
+    fake_update = type('obj', (), {'callback_query': fake_query})()
+    await view_product_callback(fake_update, context)
     return LIST_PRODUCTS
+
+
+async def toggle_active_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    product_id = context.user_data['edit_product_id']
+    with get_session() as session:
+        product = session.query(Product).get(product_id)
+        product.is_active = 1 - product.is_active
+        session.commit()
+        is_active_now = product.is_active
+    await query.answer(f"Статус изменен на {'Активен' if is_active_now else 'Неактивен'}", show_alert=True)
+    return await edit_item_start(update, context)
 
 
 # --- Обработчик данных из WebApp и заказов ---
@@ -361,11 +396,30 @@ async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         data = json.loads(update.effective_message.web_app_data.data)
         user = update.effective_user
-        if data.get('type') == 'newOrder':
+        logger.info(f"Получены данные из WebApp от {user.id}: {data}")
+
+        # Уведомление о добавлении в корзину
+        if data.get('type') == 'addToCart':
+            product_data = data.get('product', {})
+            message = (f"✅ **Товар добавлен в корзину!**\n\n"
+                       f"**Название:** {product_data.get('name')}\n"
+                       f"**Размер:** {product_data.get('size')}\n"
+                       f"**Цена:** {product_data.get('price')} руб.\n\n"
+                       f"Чтобы оформить заказ, перейдите в корзину в магазине или напишите нам:\n"
+                       f"➡️ @VibeeAdmin / @kir_tg1")
+            # Отправляем фото, если есть, иначе - текст
+            if product_data.get('image_url'):
+                await update.message.reply_photo(photo=product_data.get('image_url'), caption=message,
+                                                 parse_mode='Markdown')
+            else:
+                await update.message.reply_text(message, parse_mode='Markdown')
+
+        # Создание заказа
+        elif data.get('type') == 'newOrder':
             with get_session() as session:
                 new_order = Order(
-                    user_id=user.id, items=json.dumps(data.get('items')), delivery_type=data.get('delivery_type'),
-                    address=data.get('address'), phone=data.get('phone'), total_amount=data.get('total_price'),
+                    user_id=user.id, items=json.dumps(data.get('items')), delivery_type="Не указан",
+                    address=data.get('address', ''), phone=data.get('phone', ''), total_amount=data.get('total_price'),
                     status='Обработка'
                 )
                 session.add(new_order);
@@ -373,22 +427,31 @@ async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 order_id = new_order.id
             logger.info(f"Заказ #{order_id} от пользователя {user.id} сохранен.")
 
-            order_text = f"✅ **Ваш заказ #{order_id} успешно оформлен!**\n\n"
-            order_text += "**Состав:**\n" + "\n".join(
-                [f"- {i.get('name')} ({i.get('size')})" for i in data.get('items', [])])
-            order_text += f"\n\n**Итого:** {data.get('total_price')} руб.\n\n"
-            order_text += "Скоро свяжемся с вами для подтверждения."
-            await update.message.reply_text(order_text, parse_mode='Markdown')
+            order_text = f"📝 **Сформирована заявка на заказ #{order_id}**\n\n"
+            order_text += "**Состав заказа:**\n"
+            for item in data.get('items', []):
+                order_text += f" • {item.get('name')} ({item.get('size')}) - {item.get('price')} руб. x {item.get('quantity')}\n"
+            order_text += f"\n**Итого к оплате:** {data.get('total_price')} руб.\n\n"
+            order_text += "👇 **Для оформления заказа и уточнения деталей, пожалуйста, перешлите это сообщение менеджеру:**\n"
+            order_text += "➡️ @VibeeAdmin или @kir_tg1"
+
+            preview_image_url = data.get('items', [{}])[0].get('image_url')
+            if preview_image_url:
+                await update.message.reply_photo(photo=preview_image_url, caption=order_text, parse_mode='Markdown')
+            else:
+                await update.message.reply_text(order_text, parse_mode='Markdown')
+
     except Exception as e:
         logger.error(f"Ошибка обработки данных из WebApp: {e}", exc_info=True)
 
 
 async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
+    user_id = update.effective_user.id
     if text == "📦 Мои заказы":
         await show_user_orders(update, context)
     else:
-        await show_main_menu(update, update.effective_user.id)
+        await show_main_menu(update, user_id)
 
 
 async def show_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -398,7 +461,7 @@ async def show_user_orders(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not orders:
         await update.message.reply_text("У вас пока нет оформленных заказов.")
         return
-    response = "📦 **Ваши последние 5 заказов:**\n\n"
+    response = "📦 **Ваши последние 5 заявок/заказов:**\n\n"
     for order in orders:
         items_list = json.loads(order.items)
         items_text = ", ".join([f"{item['name']} ({item['size']})" for item in items_list])
@@ -427,7 +490,10 @@ async def run_bot_async():
     edit_item_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_item_start, pattern='^edit_start_')],
         states={
-            EDIT_CHOICE: [CallbackQueryHandler(edit_choice_callback, pattern='^edit_field_')],
+            EDIT_CHOICE: [
+                CallbackQueryHandler(edit_choice_callback, pattern='^edit_field_'),
+                CallbackQueryHandler(toggle_active_callback, pattern='^edit_toggle_active')
+            ],
             EDIT_FIELD_VALUE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_new_field_value)],
         },
         fallbacks=[
@@ -443,7 +509,8 @@ async def run_bot_async():
             LIST_PRODUCTS: [
                 CallbackQueryHandler(product_page_callback, pattern='^prod_page_'),
                 CallbackQueryHandler(view_product_callback, pattern='^prod_view_'),
-                CallbackQueryHandler(delete_product_callback, pattern='^prod_delete_'),
+                CallbackQueryHandler(delete_product_confirm, pattern='^prod_delete_confirm_'),
+                CallbackQueryHandler(delete_product_execute, pattern='^prod_delete_execute_'),
                 edit_item_conv,
             ]
         },

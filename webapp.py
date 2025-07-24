@@ -7,6 +7,7 @@ from flask import Flask, render_template, request, abort
 from sqlalchemy.exc import SQLAlchemyError
 from database import get_scoped_session, Product, Order, User
 
+# Настройка логирования
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -18,11 +19,14 @@ Session = get_scoped_session()
 
 @app.teardown_request
 def remove_session(ex=None):
+    """Автоматически закрывает сессию после каждого запроса."""
     Session.remove()
 
 @app.route('/')
 def index():
+    """Главная страница магазина с каталогом товаров."""
     user_id = request.args.get('user_id', '')
+    logger.info(f"WEBAPP: Запрос главной страницы от пользователя: {user_id}")
     try:
         products = Session.query(Product).filter_by(is_active=1).order_by(Product.id.desc()).all()
         return render_template('index.html', products=products, user_id=user_id)
@@ -32,7 +36,9 @@ def index():
 
 @app.route('/product/<int:product_id>')
 def product_detail(product_id):
+    """Страница деталей конкретного товара."""
     user_id = request.args.get('user_id', '')
+    logger.info(f"WEBAPP: Запрос товара {product_id} от пользователя: {user_id}")
     try:
         product = Session.query(Product).filter_by(id=product_id, is_active=1).first()
         if not product:
@@ -44,13 +50,17 @@ def product_detail(product_id):
 
 @app.route('/cart')
 def cart_page():
+    """Отображает страницу корзины."""
     user_id = request.args.get('user_id', '')
+    logger.info(f"WEBAPP: Пользователь {user_id} открыл корзину")
     return render_template('cart.html', user_id=user_id)
 
 @app.route('/orders')
 def user_orders():
+    """Страница заказов пользователя."""
     user_id = request.args.get('user_id')
-    if not user_id: return render_template('error.html', message="Не указан ID пользователя."), 400
+    if not user_id:
+        return render_template('error.html', message="Не указан ID пользователя."), 400
     try:
         orders = Session.query(Order).filter_by(user_id=user_id).order_by(Order.created_at.desc()).all()
         for order in orders:

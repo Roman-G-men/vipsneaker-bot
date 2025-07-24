@@ -37,7 +37,7 @@ def check_db_connection():
 def run_webapp():
     """Запуск веб-приложения (магазин + админка)."""
     logger.info(f"Запуск веб-приложения на порту {WEBAPP_PORT}")
-    # Важно: мы запускаем только один Flask app, который содержит и магазин, и админку
+    # Важно: мы запускаем только один Flask app
     web_app.run(host='0.0.0.0', port=WEBAPP_PORT, use_reloader=False)
 
 
@@ -93,8 +93,6 @@ if __name__ == "__main__":
         logger.info(f"Запущен поток: {thread.name}")
 
     logger.info("Все компоненты успешно запущены")
-    logger.info(f"Магазин доступен по публичному URL: {webapp_url}")
-    logger.info(f"Админ-панель доступна локально: http://localhost:{WEBAPP_PORT}/admin")
 
     try:
         while True:

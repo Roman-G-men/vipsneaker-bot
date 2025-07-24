@@ -1,4 +1,4 @@
-# database.py - ФИНАЛЬНАЯ ВЕРСИЯ С ВАРИАНТАМИ ТОВАРОВ
+# database.py - ФИНАЛЬНАЯ ВЕРСИЯ С ВАРИАНТАМИ ТОВАРОВ И ФУНКЦИЯМИ-ПОМОЩНИКАМИ
 
 import os
 import logging
@@ -99,16 +99,10 @@ def get_scoped_session():
 
 
 # --- Вспомогательные функции ---
-def update_product_field(product_id: int, field_name: str, new_value: any) -> bool:
-    """Обновляет одно поле у товара по его ID."""
-    try:
-        with get_session() as session:
-            session.query(Product).filter(Product.id == product_id).update({field_name: new_value})
-            session.commit()
-        return True
-    except Exception as e:
-        logger.error(f"Ошибка при обновлении поля {field_name} для товара {product_id}: {e}", exc_info=True)
-        return False
+def update_entity_field(session, entity_class, entity_id: int, field_name: str, new_value: any):
+    """Универсальная функция для обновления одного поля у любой сущности."""
+    session.query(entity_class).filter(entity_class.id == entity_id).update({field_name: new_value})
+    session.commit()
 
 
 # --- Функции инициализации ---
