@@ -322,9 +322,7 @@ async def return_to_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     await query.message.delete()
-    # "Обманываем" систему, чтобы вызвать admin_panel без нового сообщения от пользователя
-    fake_update = type('obj', (), {'message': query.message, 'effective_user': query.from_user})()
-    return await admin_panel(fake_update, context)
+    return await admin_panel(update, context)
 
 
 # --- Обработчик данных из WebApp и "Мои заказы" ---
@@ -345,9 +343,10 @@ async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             items_list = data.get('items', [])
             preview_image_url = items_list[0].get('image_url') if items_list else None
             order_text = f"📝 **Сформирована заявка на заказ #{order_id}**\n\n"
-            order_text += "**Состав:**\n" + "\n".join([f" • {i.get('name')} ({i.get('size')})" for i in items_list])
-            order_text += f"\n\n**Итого:** {data.get('total_price')} руб.\n\n"
-            order_text += "👇 **Для оформления заказа... перешлите это сообщение менеджеру:**\n"
+            order_text += "**Состав заказа:**\n" + "\n".join(
+                [f" • {i.get('name')} ({i.get('size')})" for i in items_list])
+            order_text += f"\n\n**Итого к оплате:** {data.get('total_price')} руб.\n\n"
+            order_text += "👇 **Для оформления заказа и уточнения деталей, пожалуйста, перешлите это сообщение менеджеру:**\n"
             order_text += "➡️ @VibeeAdmin или @kir_tg1"
             if preview_image_url:
                 await update.message.reply_photo(photo=preview_image_url, caption=order_text, parse_mode='Markdown')
@@ -363,7 +362,6 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
     if text == "📦 Мои заказы":
         await show_user_orders(update, context)
     else:
-        # Если пользователь пишет что-то другое, просто показываем главное меню
         await show_main_menu(update, update.effective_user.id)
 
 
@@ -447,4 +445,7 @@ async def run_bot_async():
 
 
 if __name__ == "__main__":
-    asyncio.run(run_bot_async())
+    try:
+        asyncio.run(run_bot_async())
+    except KeyboardInterrupt:
+        logger.info("Бот остановлен вручную.")
