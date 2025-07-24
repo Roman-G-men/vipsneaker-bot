@@ -1,4 +1,4 @@
-# bot.py - ФИНАЛЬНАЯ ВЕРСИЯ С УПРОЩЕННОЙ И НАДЕЖНОЙ АДМИНКОЙ
+# bot.py - ФИНАЛЬНАЯ ВЕРСИЯ С ИНТЕРАКТИВНОЙ АДМИНКОЙ И "МЯГКИМИ" ЗАКАЗАМИ
 
 import logging
 import os
@@ -39,8 +39,8 @@ MAIN_MENU_TEXT = (
     "Связь / Покупка: @VibeeAdmin / @kir_tg1"
 )
 ADMIN_WELCOME_TEXT = "Добро пожаловать в админ-панель! Что вы хотите сделать?"
-ADD_ITEM_START_TEXT = "Начинаем добавлять новый товар.\n\nШаг 1/7: Введите **название товара**.\n\nДля отмены: /cancel"
-ADD_VARIANT_TEXT = "Отлично! Товар создан.\n\nФинальный шаг: **добавьте варианты** (размеры).\nОтправьте: `размер цена количество`.\nПример: `42 12000 5`.\n\nКогда закончите, отправьте /done"
+ADD_ITEM_START_TEXT = "Начинаем добавлять новый товар.\n\nШаг 1/7: Введите **название товара**.\n\nДля отмены в любой момент введите /cancel"
+ADD_VARIANT_TEXT = "Отлично! Товар создан.\n\nФинальный шаг: **добавьте варианты** (размеры).\nОтправьте: `размер цена количество`.\nПример: `42 12000 5`.\n\nКогда закончите добавлять размеры, отправьте /done"
 
 
 # --- Утилиты ---
@@ -81,7 +81,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Выход из админки и показ главного меню."""
     user_id = update.effective_user.id
     logger.info(f"Пользователь {user_id} запустил/перезапустил бота.")
-    context.user_data.clear()
+    context.user_data.clear()  # Очищаем любые данные от админ-диалогов
     try:
         with get_session() as session:
             if not session.query(User).filter_by(telegram_id=user_id).first():
@@ -97,7 +97,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         logger.error(f"Ошибка регистрации пользователя {user_id}: {e}", exc_info=True)
 
     await show_main_menu(update, user_id)
-    return CANCEL
+    return CANCEL  # Гарантированно выходим из любого диалога
 
 
 async def show_main_menu(update: Update, user_id: int) -> None:
@@ -218,7 +218,7 @@ async def done_adding(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 
 # --- Интерактивный список товаров ---
-async def list_products_paginated(message, context: ContextTypes.DEFAULT_TYPE, page: int = 0, is_edit=False):
+async def list_products_paginated(message, context: ContextTypes.DEFAULT_TYPE, page: int = 0):
     with get_session() as session:
         per_page = 5
         offset = page * per_page
@@ -241,20 +241,19 @@ async def list_products_paginated(message, context: ContextTypes.DEFAULT_TYPE, p
         InlineKeyboardButton("Вперед ➡️", callback_data=f"prod_page_{page + 1}"))
     if pagination_buttons: keyboard.append(pagination_buttons)
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    keyboard.append([InlineKeyboardButton("⬆️ В админ-меню", callback_data="admin_menu_return")])
 
     try:
-        if is_edit:
-            await message.edit_text(text=message_text, reply_markup=reply_markup)
-        else:
-            await message.reply_text(text=message_text, reply_markup=reply_markup)
+        await message.edit_text(text=message_text, reply_markup=InlineKeyboardMarkup(keyboard))
     except Exception as e:
-        logger.warning(f"Ошибка при обновлении списка товаров (возможно, сообщение не изменилось): {e}")
+        # Если сообщение не изменилось, телеграм выдаст ошибку, это нормально
+        logger.warning(f"Ошибка при редактировании списка товаров (возможно, сообщение не изменилось): {e}")
 
 
 @admin_only
 async def list_products_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await list_products_paginated(update.message, context, page=0)
+    message = await update.message.reply_text("Загрузка списка товаров...", reply_markup=ReplyKeyboardRemove())
+    await list_products_paginated(message, context, page=0)
     return LIST_PRODUCTS
 
 
@@ -294,11 +293,11 @@ async def delete_product_confirm(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     product_id = int(query.data.split('_')[-1])
     keyboard = [
-        [InlineKeyboardButton("✅ Да, удалить", callback_data=f"prod_delete_execute_{product.id}")],
+        [InlineKeyboardButton("✅ Да, удалить", callback_data=f"prod_delete_execute_{product_id}")],
         [InlineKeyboardButton("❌ Нет, отмена",
                               callback_data=f"prod_view_{product_id}_{context.user_data.get('current_page', 0)}")]
     ]
-    await query.edit_message_text(f"Вы уверены, что хотите удалить товар #{product_id} и все его варианты?",
+    await query.edit_message_text(f"Вы уверены, что хотите удалить товар #{product_id}?",
                                   reply_markup=InlineKeyboardMarkup(keyboard))
     return LIST_PRODUCTS
 
@@ -316,6 +315,13 @@ async def delete_product_execute(update: Update, context: ContextTypes.DEFAULT_T
         else:
             await query.answer("Товар уже был удален.", show_alert=True)
     return LIST_PRODUCTS
+
+
+async def return_to_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    await query.message.delete()
+    return await admin_panel(update, context)
 
 
 # --- Обработчик данных из WebApp и "Мои заказы" ---
@@ -352,7 +358,7 @@ async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 await update.message.reply_text(order_text, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Ошибка обработки данных из WebApp: {e}", exc_info=True)
-        await update.message.reply_text("Произошла ошибка при формировании заказа. Свяжитесь с @VibeeAdmin")
+        await update.message.reply_text("Произошла ошибка при формировании вашего заказа. Свяжитесь с @VibeeAdmin")
 
 
 async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -419,6 +425,7 @@ async def run_bot_async():
                 CallbackQueryHandler(view_product_callback, pattern='^prod_view_'),
                 CallbackQueryHandler(delete_product_confirm, pattern='^prod_delete_confirm_'),
                 CallbackQueryHandler(delete_product_execute, pattern='^prod_delete_execute_'),
+                CallbackQueryHandler(return_to_admin_menu, pattern='^admin_menu_return$')
             ]
         },
         fallbacks=[CommandHandler('cancel', cancel_dialog)],
