@@ -256,7 +256,7 @@ async def list_products_paginated(message: Update.message, page: int = 0):
 @admin_only
 async def list_products_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     message = await update.message.reply_text("Загрузка списка товаров...", reply_markup=ReplyKeyboardRemove())
-    context.user_data['list_message_id'] = message.message_id
+    context.user_data['list_message'] = message
     await list_products_paginated(message, page=0)
     return LIST_PRODUCTS
 
@@ -355,6 +355,7 @@ async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYP
                 await update.message.reply_text(order_text, parse_mode='Markdown')
     except Exception as e:
         logger.error(f"Ошибка обработки данных из WebApp: {e}", exc_info=True)
+        await update.message.reply_text("Произошла ошибка при формировании заказа. Свяжитесь с @VibeeAdmin")
 
 
 async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -362,6 +363,7 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
     if text == "📦 Мои заказы":
         await show_user_orders(update, context)
     else:
+        # Если пользователь пишет что-то другое, просто показываем главное меню
         await show_main_menu(update, update.effective_user.id)
 
 
@@ -430,7 +432,6 @@ async def run_bot_async():
         allow_reentry=True
     )
 
-    # --- РЕГИСТРАЦИЯ ОБРАБОТЧИКОВ ---
     application.add_handler(admin_conv_handler)
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, web_app_data_handler))
@@ -446,7 +447,4 @@ async def run_bot_async():
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(run_bot_async())
-    except KeyboardInterrupt:
-        logger.info("Бот остановлен вручную.")
+    asyncio.run(run_bot_async())
