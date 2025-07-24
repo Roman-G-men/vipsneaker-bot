@@ -1,4 +1,4 @@
-# bot.py - ФИНАЛЬНАЯ ВЕРСИЯ С ИНТЕРАКТИВНОЙ АДМИНКОЙ И "МЯГКИМИ" ЗАКАЗАМИ
+# bot.py - АБСОЛЮТНО ПОЛНАЯ ФИНАЛЬНАЯ ВЕРСИЯ С РАБОЧЕЙ АДМИНКОЙ
 
 import logging
 import os
@@ -13,7 +13,7 @@ from telegram.ext import (
     Application, CommandHandler, ContextTypes, MessageHandler, filters, CallbackContext, ConversationHandler,
     CallbackQueryHandler
 )
-from database import get_session, User, Order, Product, ProductVariant
+from database import get_session, User, Order, Product, ProductVariant, update_entity_field
 
 # Настройка логирования
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -28,6 +28,7 @@ ADMIN_IDS = [8141146399, ]
 # --- Состояния для диалогов ---
 (ADMIN_MENU, LIST_PRODUCTS) = range(2)
 (ADD_NAME, ADD_BRAND, ADD_CATEGORY, ADD_DESCRIPTION, ADD_COMPOSITION, ADD_PHOTO, ADD_VARIANTS) = range(2, 9)
+(EDIT_CHOICE, EDIT_FIELD_VALUE) = range(9, 11)
 CANCEL = ConversationHandler.END
 
 # --- Текстовые константы ---
@@ -39,8 +40,8 @@ MAIN_MENU_TEXT = (
     "Связь / Покупка: @VibeeAdmin / @kir_tg1"
 )
 ADMIN_WELCOME_TEXT = "Добро пожаловать в админ-панель! Что вы хотите сделать?"
-ADD_ITEM_START_TEXT = "Начинаем добавлять новый товар.\n\nШаг 1/7: Введите **название товара**.\n\nДля отмены в любой момент введите /cancel"
-ADD_VARIANT_TEXT = "Отлично! Товар создан.\n\nФинальный шаг: **добавьте варианты** (размеры).\nОтправьте: `размер цена количество`.\nПример: `42 12000 5`.\n\nКогда закончите добавлять размеры, отправьте /done"
+ADD_ITEM_START_TEXT = "Начинаем добавлять новый товар.\n\nШаг 1/7: Введите **название товара**.\n\nДля отмены: /cancel"
+ADD_VARIANT_TEXT = "Отлично! Товар создан.\n\nФинальный шаг: **добавьте варианты** (размеры).\nОтправьте: `размер цена количество`.\nПример: `42 12000 5`.\n\nКогда закончите, отправьте /done"
 
 
 # --- Утилиты ---
@@ -81,7 +82,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Выход из админки и показ главного меню."""
     user_id = update.effective_user.id
     logger.info(f"Пользователь {user_id} запустил/перезапустил бота.")
-    context.user_data.clear()  # Очищаем любые данные от админ-диалогов
+    context.user_data.clear()
     try:
         with get_session() as session:
             if not session.query(User).filter_by(telegram_id=user_id).first():
@@ -97,7 +98,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         logger.error(f"Ошибка регистрации пользователя {user_id}: {e}", exc_info=True)
 
     await show_main_menu(update, user_id)
-    return CANCEL  # Гарантированно выходим из любого диалога
+    return CANCEL
 
 
 async def show_main_menu(update: Update, user_id: int) -> None:
@@ -135,8 +136,7 @@ async def get_brand(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['new_product']['brand'] = update.message.text
     keyboard = [["кроссовки", "одежда"]]
     await update.message.reply_text("Шаг 3/7: Выберите **категорию**:",
-                                    reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True,
-                                                                     resize_keyboard=True))
+                                    reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True))
     return ADD_CATEGORY
 
 
@@ -204,9 +204,11 @@ async def done_adding(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                 description=product_data['description'], composition=product_data.get('composition'),
                 image_url=product_data['image_url'], is_active=1
             )
-            for var_data in product_data['variants']:
-                new_product.variants.append(ProductVariant(**var_data))
             session.add(new_product)
+            session.flush()
+            for var_data in product_data['variants']:
+                variant = ProductVariant(product_id=new_product.id, **var_data)
+                session.add(variant)
             session.commit()
             product_id = new_product.id
         await update.message.reply_text(
@@ -246,8 +248,7 @@ async def list_products_paginated(message, context: ContextTypes.DEFAULT_TYPE, p
     try:
         await message.edit_text(text=message_text, reply_markup=InlineKeyboardMarkup(keyboard))
     except Exception as e:
-        # Если сообщение не изменилось, телеграм выдаст ошибку, это нормально
-        logger.warning(f"Ошибка при редактировании списка товаров (возможно, сообщение не изменилось): {e}")
+        logger.warning(f"Ошибка при обновлении списка товаров (возможно, сообщение не изменилось): {e}")
 
 
 @admin_only

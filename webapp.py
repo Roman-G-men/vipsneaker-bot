@@ -1,4 +1,4 @@
-# webapp.py - ФИНАЛЬНАЯ ВЕРСИЯ (ТОЛЬКО МАГАЗИН ДЛЯ КЛИЕНТОВ)
+# webapp.py - ПОЛНАЯ ФИНАЛЬНАЯ ВЕРСИЯ (ТОЛЬКО МАГАЗИН ДЛЯ КЛИЕНТОВ)
 
 import logging
 import json
@@ -28,10 +28,12 @@ def index():
     user_id = request.args.get('user_id', '')
     logger.info(f"WEBAPP: Запрос главной страницы от пользователя: {user_id}")
     try:
+        # Загружаем только активные товары
         products = Session.query(Product).filter_by(is_active=1).order_by(Product.id.desc()).all()
+        logger.info(f"WEBAPP: Найдено {len(products)} активных товаров для отображения.")
         return render_template('index.html', products=products, user_id=user_id)
     except Exception as e:
-        logger.error(f"WEBAPP: Ошибка при загрузке товаров: {e}", exc_info=True)
+        logger.error(f"WEBAPP: КРИТИЧЕСКАЯ ОШИБКА при загрузке товаров: {e}", exc_info=True)
         return render_template('error.html', message="Не удалось загрузить каталог товаров."), 500
 
 @app.route('/product/<int:product_id>')
@@ -42,7 +44,8 @@ def product_detail(product_id):
     try:
         product = Session.query(Product).filter_by(id=product_id, is_active=1).first()
         if not product:
-            abort(404)
+            logger.warning(f"WEBAPP: Попытка доступа к неактивному или несуществующему товару #{product_id}")
+            abort(404) # Если товар не найден или неактивен
         return render_template('product.html', product=product, user_id=user_id)
     except Exception as e:
         logger.error(f"WEBAPP: Ошибка при загрузке товара {product_id}: {e}", exc_info=True)
@@ -59,15 +62,19 @@ def cart_page():
 def user_orders():
     """Страница заказов пользователя."""
     user_id = request.args.get('user_id')
-    if not user_id: return render_template('error.html', message="Не указан ID пользователя."), 400
+    if not user_id:
+        logger.warning("WEBAPP: Запрос заказов без user_id")
+        return render_template('error.html', message="Не указан ID пользователя."), 400
     try:
+        # Загружаем заказы из БД
         orders = Session.query(Order).filter_by(user_id=user_id).order_by(Order.created_at.desc()).all()
+        # Преобразуем JSON-строку в Python-объект для каждого заказа
         for order in orders:
             if isinstance(order.items, str):
                 try:
                     order.items = json.loads(order.items)
                 except json.JSONDecodeError:
-                    order.items = []
+                    order.items = [] # Безопасность на случай битого JSON
         return render_template('orders.html', orders=orders, user_id=user_id)
     except Exception as e:
         logger.error(f"WEBAPP: Ошибка загрузки заказов {user_id}: {e}", exc_info=True)

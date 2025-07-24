@@ -1,4 +1,4 @@
-# database.py - ФИНАЛЬНАЯ ВЕРСИЯ С ВАРИАНТАМИ ТОВАРОВ И ФУНКЦИЯМИ-ПОМОЩНИКАМИ
+# database.py - ПОЛНАЯ ВЕРСИЯ С ВАРИАНТАМИ ТОВАРОВ И ФУНКЦИЯМИ-ПОМОЩНИКАМИ
 
 import os
 import logging
@@ -71,11 +71,8 @@ class Order(Base):
     user_id = Column(Integer, index=True)
     items = Column(JSON)
     status = Column(String(50), default='Обработка', index=True)
-    delivery_type = Column(String(50))
     created_at = Column(DateTime, default=func.now(), index=True)
     total_amount = Column(Integer)
-    address = Column(String(200))
-    phone = Column(String(20))
 
 
 # --- Управление сессиями ---
@@ -120,17 +117,23 @@ def add_test_products(session):
     product1 = Product(name="Nike Air Jordan 1", brand="Nike", category="sneakers", description="Классика",
                        image_url="https://static.nike.com/a/images/t_PDP_1728_v1/f_auto,q_auto:eco/af53d53d-561f-450a-a483-70a7ceee380f/air-jordan-1-mid-shoes-1zMCFJ.png",
                        composition="Кожа, резина")
-    variant1_1 = ProductVariant(product=product1, size="41", price=12000, stock=5)
-    variant1_2 = ProductVariant(product=product1, size="42", price=12000, stock=10)
-    variant1_3 = ProductVariant(product=product1, size="43", price=12500, stock=0)
+    session.add(product1)
+    session.flush()
+    session.add_all([
+        ProductVariant(product_id=product1.id, size="41", price=12000, stock=5),
+        ProductVariant(product_id=product1.id, size="42", price=12000, stock=10),
+        ProductVariant(product_id=product1.id, size="43", price=12500, stock=0),
+    ])
 
     product2 = Product(name="Футболка Supreme", brand="Supreme", category="clothing", description="Box Logo",
                        image_url="https://images.stockx.com/images/Supreme-Box-Logo-Tee-Black.jpg",
                        composition="100% хлопок")
-    variant2_1 = ProductVariant(product=product2, size="M", price=5000, stock=3)
-    variant2_2 = ProductVariant(product=product2, size="L", price=5000, stock=7)
-
-    session.add_all([product1, variant1_1, variant1_2, variant1_3, product2, variant2_1, variant2_2])
+    session.add(product2)
+    session.flush()
+    session.add_all([
+        ProductVariant(product_id=product2.id, size="M", price=5000, stock=3),
+        ProductVariant(product_id=product2.id, size="L", price=5000, stock=7),
+    ])
     session.commit()
 
 
