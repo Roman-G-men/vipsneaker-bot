@@ -1,0 +1,118 @@
+<!-- src/webapp/templates/index.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>VibesResell</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="{{ url_for('main.static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div id="app" v-cloak>
+        <div id="loader" v-if="isLoading">
+            <div class="spinner"></div>
+        </div>
+
+        <!-- MAIN VIEW (CATALOG, PRODUCT, CART) -->
+        <div class="main-container" :class="{ 'view-product': currentView === 'product', 'view-cart': currentView === 'cart' }">
+
+            <!-- CATALOG VIEW -->
+            <div class="view" id="catalog-view">
+                <div class="header">
+                    <input type="text" v-model="searchQuery" placeholder="🔍 Поиск...">
+                </div>
+                <div class="filters">
+                    <select v-model="filters.category">
+                        <option value="">Все категории</option>
+                        <option>Кроссовки</option>
+                        <option>Одежда</option>
+                    </select>
+                    <select v-model="filters.brand">
+                        <option value="">Все бренды</option>
+                        <option v-for="brand in uniqueBrands" :key="brand" :value="brand">{{ brand }}</option>
+                    </select>
+                </div>
+                <div class="product-grid">
+                    <div v-for="product in filteredProducts" :key="product.id" class="product-card" @click="showProduct(product.id)">
+                        <img :src="product.photo_url" :alt="product.name" loading="lazy">
+                        <div class="product-card-info">
+                            <h3>{{ product.name }}</h3>
+                            <p class="price" v-if="product.min_price">от {{ product.min_price.toFixed(0) }} ₽</p>
+                            <p v-else class="out-of-stock">Нет в наличии</p>
+                        </div>
+                    </div>
+                    <p v-if="!isLoading && filteredProducts.length === 0" class="no-products">Товары не найдены.</p>
+                </div>
+                 <!-- FLOATING CART ICON -->
+                <div id="cart-icon" v-if="cartCount > 0" @click="showView('cart')">
+                    🛒
+                    <span id="cart-count">{{ cartCount }}</span>
+                </div>
+            </div>
+
+            <!-- PRODUCT DETAIL VIEW -->
+            <div class="view" id="product-view">
+                <div v-if="currentProduct">
+                    <div class="product-header">
+                        <button class="back-btn" @click="showView('catalog')">←</button>
+                    </div>
+                    <img :src="currentProduct.photo_url" alt="" class="product-detail-img">
+                    <h2>{{ currentProduct.name }}</h2>
+                    <p class="brand"><strong>Бренд:</strong> {{ currentProduct.brand }}</p>
+                    <p class="description">{{ currentProduct.description }}</p>
+                    <p class="composition"><strong>Состав:</strong> {{ currentProduct.composition }}</p>
+                    <div class="size-selector">
+                        <button v-for="variant in currentProduct.variants" :key="variant.id"
+                                class="size-btn"
+                                :class="{ selected: selectedVariant && selectedVariant.id === variant.id }"
+                                :disabled="variant.stock <= 0"
+                                @click="selectVariant(variant)">
+                            {{ variant.size }}
+                        </button>
+                    </div>
+                    <div class="price-display" v-if="selectedVariant">{{ selectedVariant.price.toFixed(0) }} ₽</div>
+                    <button id="add-to-cart-btn" class="action-button" @click="addToCart" :disabled="!selectedVariant">
+                        {{ isProductInCart ? 'Добавлено' : 'Добавить в корзину' }}
+                    </button>
+                </div>
+            </div>
+
+            <!-- CART VIEW -->
+            <div class="view" id="cart-view">
+                <div class="cart-header">
+                     <button class="back-btn" @click="showView('catalog')">←</button>
+                     <h2>Корзина</h2>
+                </div>
+                <div class="cart-content">
+                    <div v-if="cartCount > 0">
+                        <div v-for="item in cart" :key="item.variant_id" class="cart-item">
+                            <img :src="item.photo_url" alt="">
+                            <div class="cart-item-details">
+                                <strong>{{ item.product_name }}</strong><br>
+                                Размер: {{ item.size }} <br>
+                                <span class="cart-item-price">{{ item.price.toFixed(0) }} ₽</span>
+                            </div>
+                            <div class="cart-item-controls">
+                                <button @click="updateQuantity(item.variant_id, -1)">-</button>
+                                <span>{{ item.quantity }}</span>
+                                <button @click="updateQuantity(item.variant_id, 1)">+</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="empty-cart">
+                        <p>Ваша корзина пуста.</p>
+                    </div>
+                </div>
+                 <div class="cart-footer" v-if="cartCount > 0">
+                    <div class="cart-total">Итого: {{ cartTotal.toFixed(0) }} ₽</div>
+                    <button id="place-order-btn" class="action-button" @click="placeOrder">Сформировать заказ</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+    <script src="{{ url_for('main.static', filename='js/app.js') }}"></script>
+</body>
+</html>

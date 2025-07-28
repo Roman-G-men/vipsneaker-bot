@@ -1,17 +1,16 @@
-# Файлы виртуального окружения
+# Python
+__pycache__/
+*.pyc
 .venv/
 venv/
 
-# Файлы кэша Python
-__pycache__/
-*.pyc
-
-# Файлы базы данных SQLite
-*.db
-*.db-journal
-
-# Файл с секретными данными
+# Секреты
 .env
 
-# Файлы IDE
+# База данных
+*.db
+*.sqlite3
+
+# IDE
 .idea/
+*.swp
