@@ -7,8 +7,13 @@ from telegram.ext import (Application, CommandHandler, CallbackQueryHandler, Mes
 
 import config
 from database import SessionLocal, queries
-from services import imgbb # Оставляем эту строку как есть, но будем чинить services/__init__.py
+from services import imgbb
 from utils.helpers import create_admin_pagination_keyboard
+
+# ==================== ИСПРАВЛЕНИЕ ЗДЕСЬ ====================
+logger = logging.getLogger(__name__)
+# ==========================================================
+
 (NAME, BRAND, CATEGORY, DESCRIPTION, COMPOSITION, PHOTO, VARIANTS, CONFIRM) = range(8)
 
 
@@ -16,6 +21,7 @@ def restricted(func):
     @wraps(func)
     async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         if update.effective_user.id not in config.ADMIN_IDS:
+            # Теперь эта строка будет работать, так как logger определен выше
             logger.warning(f"Неавторизованный доступ в админ-бот от {update.effective_user.id}")
             return
         return await func(update, context, *args, **kwargs)
@@ -113,7 +119,6 @@ async def get_variants(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         size, price_str, stock_str = update.message.text.strip().split()
         variant_data = {'size': size, 'price': float(price_str), 'stock': int(stock_str)}
 
-        # Проверяем, нет ли уже такого размера
         if any(v['size'] == size for v in context.user_data['product_info']['variants']):
             await update.message.reply_text(f"⚠️ Размер {size} уже добавлен. Вы можете отредактировать его позже.")
             return VARIANTS
@@ -133,7 +138,6 @@ async def done_adding(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
             "Вы не добавили ни одного варианта. Добавьте хотя бы один или отмените /cancel.")
         return VARIANTS
 
-    # Показываем превью товара для подтверждения
     variants_info = "\n".join(f"  - {v['size']}, {v['price']}₽, {v['stock']} шт." for v in product_info['variants'])
     text = (f"<b>Проверьте данные перед сохранением:</b>\n\n"
             f"<b>Название:</b> {product_info['name']}\n"
@@ -174,7 +178,7 @@ async def save_product_confirmed(update: Update, context: ContextTypes.DEFAULT_T
         db.close()
 
     context.user_data.clear()
-    await start_command(update, context)  # Возвращаемся в главное меню
+    await start_command(update, context)
     return ConversationHandler.END
 
 
@@ -183,7 +187,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     if update.callback_query:
         await update.callback_query.answer()
-        # Проверяем, есть ли сообщение для редактирования. Если это /cancel, то нет.
         if update.callback_query.message:
             await update.callback_query.edit_message_text('Действие отменено.')
     else:
@@ -245,7 +248,6 @@ async def view_product(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             [InlineKeyboardButton("◀️ К списку", callback_data='list_products_0')]
         ]
 
-        # Отправляем с фото
         await context.bot.send_photo(
             chat_id=query.message.chat_id,
             photo=product.photo_url,
@@ -253,7 +255,7 @@ async def view_product(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             parse_mode='HTML',
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
-        await query.message.delete()  # Удаляем старое сообщение (список)
+        await query.message.delete()
 
     finally:
         db.close()
@@ -268,7 +270,6 @@ async def delete_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         [InlineKeyboardButton("❌ Нет, отмена", callback_data=f'view_product_{product_id}')]
     ]
     await query.answer()
-    # Редактируем подпись к фото
     await query.edit_message_caption(caption=f"Уверены, что хотите удалить товар ID {product_id}?",
                                      reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -282,7 +283,6 @@ async def delete_do(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if queries.delete_product(db, product_id):
             await query.answer("Товар удален!")
             logger.info(f"Админ {update.effective_user.id} удалил товар {product_id}")
-            # Возвращаемся к списку
             await query.message.delete()
             query.data = 'list_products_0'
             await list_products(update, context)
@@ -321,7 +321,6 @@ def create_admin_bot_app():
     application.add_handler(CallbackQueryHandler(delete_confirm, pattern='^delete_confirm_'))
     application.add_handler(CallbackQueryHandler(delete_do, pattern='^delete_do_'))
     application.add_handler(CallbackQueryHandler(start_command, pattern='^main_menu$'))
-    # Обработчик для "неоперабельной" кнопки пагинации
     application.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern='^noop$'))
 
     return application
